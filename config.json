@@ -35,22 +35,22 @@
           {
             "name": "hello",
             "path": "labels/hello.png",
-            "threshold": 0.85,
-            "color_threshold": 0.85,
+            "threshold": 0.99,
+            "color_threshold": 0.99,
             "roi": [0.0, 0.0, 1.0, 1.0]
           },
           {
             "name": "stop",
             "path": "labels/stop.png",
-            "threshold": 0.85,
-            "color_threshold": 0.85,
+            "threshold": 0.99,
+            "color_threshold": 0.99,
             "roi": [0.0, 0.0, 1.0, 1.0]
           },
           {
             "name": "draw",
             "path": "labels/draw.png",
-            "threshold": 0.85,
-            "color_threshold": 0.85,
+            "threshold": 0.99,
+            "color_threshold": 0.99,
             "roi": [0.0, 0.0, 1.0, 1.0]
           }
         ]

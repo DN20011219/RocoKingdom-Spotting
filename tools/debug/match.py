@@ -2,7 +2,7 @@
 """模板匹配诊断工具 — 支持单模板/全部模板批量测试。
 
 用法:
-    cd sentinel
+    cd RocoKingdom-Spotting
     python tools/debug/match.py                     # 测试所有 labels/*.png
     python tools/debug/match.py -t labels/hello.png # 只测单个模板
     python tools/debug/match.py --threshold 0.85 --save
@@ -12,17 +12,17 @@ import sys
 import time
 from pathlib import Path
 
-# 路径自举：tools/debug/ -> tools/ -> sentinel/ -> 父项目
-_parent = str(Path(__file__).resolve().parent.parent.parent.parent)
-if _parent not in sys.path:
-    sys.path.insert(0, _parent)
+# 路径自举：tools/debug/ -> tools/ -> 项目根目录
+_project_root = str(Path(__file__).resolve().parent.parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 import argparse
 import cv2
 import numpy as np
 
-from sentinel.capture.window import find_window_by_keyword, get_client_rect_on_screen, is_foreground
-from sentinel.capture.grabber import FrameGrabber
+from capture.window import find_window_by_keyword, get_client_rect_on_screen, is_foreground
+from capture.grabber import FrameGrabber
 
 
 def _imwrite_unicode(path: str, img: np.ndarray) -> bool:
@@ -139,7 +139,7 @@ def main():
     print(f"    截图尺寸：{frame.shape[1]}x{frame.shape[0]}")
 
     # 3. 收集模板列表
-    base_dir = Path(__file__).resolve().parent.parent.parent  # sentinel/
+    base_dir = Path(__file__).resolve().parent.parent.parent  # 项目根目录
     if args.template:
         tpl_paths = [base_dir / args.template]
     else:

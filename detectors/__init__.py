@@ -26,7 +26,7 @@ def _ensure_loaded() -> None:
 
     for mod_name in ("template_detector", "sift_detector", "yolo_detector"):
         try:
-            importlib.import_module(f"sentinel.detectors.{mod_name}")
+            importlib.import_module(f"detectors.{mod_name}")
         except ImportError as e:
             logger.debug("检测器模块 %s 未加载（缺少依赖）: %s", mod_name, e)
         except Exception as e:

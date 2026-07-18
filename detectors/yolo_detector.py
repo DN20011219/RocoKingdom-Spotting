@@ -12,7 +12,7 @@ from typing import Any, List, Optional
 
 import numpy as np
 
-from sentinel.detectors.base import Detection, DetectorBase, DetectorRegistry
+from detectors.base import Detection, DetectorBase, DetectorRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class YoloDetector(DetectorBase):
     """YOLO 检测器（ultralytics）。
 
     参数（均通过 config.json 传入）:
-        model_path: str — .pt 模型文件路径（相对于 sentinel/ 目录）
+        model_path: str — .pt 模型文件路径（相对于项目目录）
         device: str — "auto" / "cuda:0" / "cpu"
         conf: float — 置信度阈值
         imgsz: int — 推理图片尺寸（320/416/640）
@@ -71,8 +71,8 @@ class YoloDetector(DetectorBase):
         # 路径解析
         p = Path(self._model_path_raw)
         if not p.is_absolute():
-            from sentinel.config import SENTINEL_DIR
-            p = SENTINEL_DIR / p
+            from config import PROJECT_DIR
+            p = PROJECT_DIR / p
 
         if not p.exists():
             raise FileNotFoundError(f"YOLO 模型文件不存在: {p}")

@@ -1,43 +1,53 @@
-# sentinel/ — 实时多目标识别（独立项目）
+# RocoKingdom-Spotting
 
-同帧多类型目标实时检测框架，用于洛克王国：世界游戏场景。  
-**完全独立**：从 `sentinel/` 目录内部或外部均可运行，无需依赖父项目路径。
+实时多目标识别框架，用于洛克王国：世界游戏场景。支持插件化检测器，同帧并行运行多种匹配算法。
 
 ## 核心能力
 
 | 能力 | 实现 |
 |---|---|
 | 3D 内容检测 | YOLO 检测器（ultralytics），GPU/CPU 可配，模型可插拔 |
-| 平面 label 检测 | OpenCV 模板匹配（TM_CCOEFF_NORMED + BGR 颜色二次校验） |
-| 性能目标 | 10fps，单帧处理 <100ms |
+| 平面 label 检测 | OpenCV 模板匹配（TM_CCORR_NORMED + BGR 颜色二次校验） |
+| 特征点匹配 | SIFT 特征提取 + BFMatcher + Lowe's ratio test |
 | 覆盖层显示 | GDI 透明窗口，绿色=匹配成功 / 黄色=低分，框外标注 name:score |
+| 性能目标 | 10fps，单帧处理 <100ms |
 
 ## 目录结构
 
 ```
-sentinel/
-├── run.py                   # 启动脚本（从 sentinel/ 内部运行）
-├── __init__.py
-├── __main__.py              # 入口（支持 python -m / python __main__.py）
+RocoKingdom-Spotting/
+├── run.py                   # 启动脚本
+├── __main__.py              # 入口（支持 python -m / python run.py）
 ├── config.py                # 统一配置（JSON 驱动）
 ├── config.json              # 默认运行配置
 ├── pipeline.py              # 核心流水线：截帧 -> 检测 -> 渲染
 │
 ├── capture/                 # 截图层
 │   ├── window.py            # 窗口查找 + DPI 感知
-│   ├── grabber.py           # 截图后端（screen-client / printwindow）
-│   └── frame_buffer.py      # 环形帧缓冲
+│   ├── grabber.py           # 截图后端（screen-client / screen-window）
+│   └── frame_buffer.py      # 环形帧缓冲（截帧与处理解耦）
 │
 ├── detectors/               # 检测器层（核心扩展点）
 │   ├── base.py              # Detection 数据类 + DetectorBase + DetectorRegistry
-│   ├── template_detector.py # 轻量模板匹配检测器
-│   └── yolo_detector.py     # YOLO 检测器
+│   ├── template_detector.py # 模板匹配检测器（灰度 + 颜色校验）
+│   ├── sift_detector.py     # SIFT 特征点匹配检测器
+│   └── yolo_detector.py     # YOLO 检测器（ultralytics）
 │
 ├── display/                 # 渲染层
-│   └── overlay.py           # GDI 覆盖层
+│   └── overlay.py           # GDI 覆盖层窗口
+│
+├── tools/                   # 开发工具
+│   ├── capture.py           # 公用截图工具（窗口查找、截图、批量截帧）
+│   ├── debug/               # 检测算法诊断
+│   │   ├── match.py         #   模板匹配诊断（单模板/批量）
+│   │   ├── sift.py          #   SIFT 匹配诊断（含连线可视化）
+│   │   └── yolo.py          #   YOLO 检测诊断
+│   ├── yolo_tools/          # YOLO 数据集工具
+│   │   └── yolo_labeler.py  #   YOLO 数据标注（OpenCV GUI）
+│   └── train/               # 模型训练
+│       └── yolo.py          #   YOLO 模型训练（ultralytics）
 │
 ├── labels/                  # 模板图片目录
-│   └── box/                 # 宝箱相关模板
 └── models/                  # YOLO 模型目录（.pt 文件）
 ```
 
@@ -46,33 +56,63 @@ sentinel/
 ### 依赖安装
 
 ```bash
-pip install opencv-python pywin32
-# 如需 YOLO 检测器：
+pip install opencv-python pywin32 numpy
+# 如需 YOLO 检测器或训练：
 pip install ultralytics
 ```
 
 ### 运行
 
-sentinel 是独立项目，支持从任意位置运行：
-
 ```bash
-# 方式一：从 sentinel/ 目录内部运行（推荐）
-cd sentinel
+# 方式一：启动脚本（推荐）
 python run.py
-python run.py -v
-python run.py --config path/to/config.json
 
-# 方式二：直接执行 __main__.py
-cd sentinel
+# 方式二：直接执行入口
 python __main__.py
 
-# 方式三：从父目录使用 python -m
-python -m sentinel
+# 通用参数
+python run.py -v                      # 详细日志
+python run.py --config path/to.json   # 指定配置文件
 ```
 
-### 退出
-
 在运行窗口中按 `Q` 键退出。
+
+## 检测算法
+
+项目通过 `DetectorRegistry` 实现检测器插件化，所有算法并行注册，在 `config.json` 中按需启用。
+
+### 模板匹配（type: "template"）
+
+基于 OpenCV `TM_CCORR_NORMED` 灰度匹配 + BGR 颜色二次校验。适合固定 UI 元素（按钮、图标）的精确匹配。
+
+- 支持多尺度搜索（`scales` 参数）
+- 支持 ROI 区域限制（`roi` 参数，比例坐标）
+- 支持模板数量限制（`max_templates`）
+
+### SIFT 特征匹配（type: "sift"）
+
+基于 SIFT 关键点和描述子，BFMatcher + Lowe's ratio test。适合文字内容差异大、形状相似但语义不同的场景。
+
+- 好匹配点数量作为阈值（`threshold`）
+- ratio test 严格度可调（`ratio_threshold`）
+- 同样支持多尺度和 ROI
+
+### YOLO 检测（type: "yolo"）
+
+基于 ultralytics，支持 GPU/CPU 自动选择。适合 3D 场景中的物体检测。
+
+- 延迟加载模型，避免启动阻塞
+- 支持 FP16 推理加速（`half`）
+- 支持类别过滤（`classes`）
+
+### 选择指南
+
+| 场景 | 推荐算法 | 原因 |
+|---|---|---|
+| 固定 UI 按钮/图标 | 模板匹配 | 速度快、精度高 |
+| 文字内容不同的按钮 | SIFT | 能区分文字差异 |
+| 3D 场景物体 | YOLO | 泛化能力强 |
+| 缩放/分辨率变化 | SIFT 或 模板+多尺度 | 特征点/多尺度容忍缩放 |
 
 ## 配置文件
 
@@ -84,7 +124,14 @@ python -m sentinel
   "capture_backend": "screen-client",
   "use_frame_buffer": true,
   "frame_buffer_size": 10,
+  "foreground_only": true,
   "interval": 0.1,
+  "show_overlay": true,
+  "print_json": false,
+  "debug": false,
+  "debug_dir": "debug_frames",
+  "debug_save_interval": 10,
+
   "detectors": {
     "yolo_pets": {
       "type": "yolo",
@@ -93,28 +140,100 @@ python -m sentinel
         "model_path": "models/yolo26s.pt",
         "device": "auto",
         "conf": 0.4,
-        "imgsz": 640
+        "imgsz": 640,
+        "half": false
       }
     },
     "flat_labels": {
       "type": "template",
       "enabled": true,
       "params": {
-        "default_threshold": 0.75,
+        "device": "cpu",
+        "default_threshold": 0.85,
+        "default_color_threshold": 0.85,
         "scales": [0.85, 1.0, 1.15],
-        "max_templates": 0,
-        "templates": [...]
+        "templates": [
+          {
+            "name": "hello",
+            "path": "labels/hello.png",
+            "threshold": 0.85,
+            "color_threshold": 0.85,
+            "roi": [0.0, 0.0, 1.0, 1.0]
+          }
+        ]
       }
     }
   }
 }
 ```
 
-关键参数说明：
-- `device`: `"auto"` 自动检测 GPU，无 GPU 则降级 CPU
-- `scales`: 缩放档位，每增加一档耗时线性增长
-- `roi`: 每个模板可指定搜索区域 `[left, top, right, bottom]`（比例坐标）
-- `max_templates`: 限制同时匹配的模板数量（0=不限制）
+### 关键参数
+
+| 参数 | 说明 |
+|---|---|
+| `device` | `"auto"` 自动检测 GPU，无 GPU 则降级 CPU |
+| `scales` | 缩放档位，每增加一档耗时线性增长 |
+| `roi` | 搜索区域 `[left, top, right, bottom]`（比例坐标 0-1） |
+| `debug` | 开启后每 N 帧保存带标注的调试图到 `debug_dir` |
+| `print_json` | 输出 JSON 格式结果，便于程序解析 |
+
+## 调试工具
+
+`tools/debug/` 下的工具可独立运行，用于诊断单个算法的匹配效果：
+
+```bash
+# 模板匹配诊断
+python tools/debug/match.py                          # 测试所有 labels/*.png
+python tools/debug/match.py -t labels/hello.png      # 单个模板
+python tools/debug/match.py --threshold 0.85 --save   # 保存可视化
+
+# SIFT 匹配诊断
+python tools/debug/sift.py                           # 测试所有 labels/*.png
+python tools/debug/sift.py --ratio 0.85 --save        # 保存含连线图
+
+# YOLO 检测诊断
+python tools/debug/yolo.py                           # 使用默认模型
+python tools/debug/yolo.py --conf 0.5 --save          # 保存标注结果
+```
+
+## 数据标注
+
+`tools/yolo_tools/yolo_labeler.py` 提供基于 OpenCV GUI 的 YOLO 数据标注工具，支持从游戏窗口截图或加载本地图片。
+
+```bash
+# 从游戏窗口截图后标注
+python tools/yolo_tools/yolo_labeler.py --capture --classes pet1 pet2 pet3
+
+# 标注本地图片
+python tools/yolo_tools/yolo_labeler.py --images path/to/images --classes pet1 pet2 pet3
+
+# 指定输出目录和截图参数
+python tools/yolo_tools/yolo_labeler.py --capture --classes a b --output datasets/my_data --capture-count 30 --capture-interval 0.5
+```
+
+**标注界面操作：**
+
+| 操作 | 功能 |
+|---|---|
+| 左键拖拽 | 画 bounding box |
+| 右键点击 | 删除最近的标注 |
+| `0-9` | 选择当前类别 |
+| `Space` / `D` | 下一张图片 |
+| `A` | 上一张图片 |
+| `S` | 保存当前进度 |
+| `Q` / `Esc` | 保存并退出 |
+
+标注结果输出为 YOLO 格式（`images/` + `labels/` + `data.yaml`），支持断点续标，可直接用于 `tools/train/yolo.py --data` 训练。
+
+## 模型训练
+
+```bash
+python tools/train/yolo.py --data datasets/pets.yaml --model yolo11n.pt
+python tools/train/yolo.py --data datasets/pets.yaml --epochs 200 --batch 32
+python tools/train/yolo.py --resume                   # 恢复中断的训练
+```
+
+训练完成后模型保存在 `runs/detect/<name>/weights/best.pt`，可复制到 `models/` 目录供检测使用。
 
 ## 扩展新检测器
 
@@ -127,29 +246,25 @@ python -m sentinel
 
 | 阶段 | 预估耗时 |
 |---|---|
-| 截帧（PrintWindow） | 5–15ms |
+| 截帧（GDI） | 5–15ms |
 | YOLO 推理（GPU） | 15–30ms |
 | 模板匹配（5个, 单尺度, CPU） | 10–25ms |
+| SIFT 匹配（5个, CPU） | 20–40ms |
 | 结果合并 + 渲染 | 2–5ms |
-| **合计** | **32–75ms** |
+| **合计** | **52–115ms** |
 
-无 GPU 时 YOLO CPU 约 50–80ms，可通过降低 `imgsz` 到 416 或换 YOLOv8n 缓解。
+无 GPU 时 YOLO CPU 约 50–80ms，可通过降低 `imgsz` 到 416 或换更小的模型缓解。
 
 ## 输出格式
 
 每帧打印状态行：
 
 ```
-[14:30:25] found=2 | box-1:0.87, strange-bloodline:0.72 | cap=8ms det=35ms ren=3ms tot=46ms
+[14:30:25] found=2 | hello:0.92, stop:0.88 | cap=8ms det=35ms ren=3ms tot=46ms
 ```
 
-设置 `print_json: true` 可输出 JSON 格式，便于程序解析。
+设置 `print_json: true` 可输出 JSON 格式：
 
-## 与现有模块的关系
-
-| 模块 | 关系 |
-|---|---|
-| `capture/` | 截图逻辑被提取到 `sentinel/capture/`，模板匹配算法被提取到 `sentinel/detectors/template_detector.py`。原 capture/ 保持不变 |
-| `vision-backend/` | 不复用。MSE 算法质量不如 OpenCV TM_CCOEFF_NORMED |
-| `RocoPilot/core/` | YOLO 检测器参考 pet_detector.py 写法，不直接依赖 |
-| `ocr-backend/` | 暂不集成，后续可作为第三种检测器 `@register("ocr")` 插入 |
+```json
+{"time":"14:30:25","capture_ms":8.0,"detect_ms":35.0,"render_ms":3.0,"total_ms":46.0,"detections":[...]}
+```

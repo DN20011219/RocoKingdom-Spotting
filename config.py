@@ -1,4 +1,4 @@
-"""sentinel 统一配置 — JSON 驱动，所有参数均可在 config.json 中覆盖。"""
+"""RocoKingdom-Spotting 统一配置 — JSON 驱动，所有参数均可在 config.json 中覆盖。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 
-SENTINEL_DIR = Path(__file__).resolve().parent
-DEFAULT_CONFIG_PATH = SENTINEL_DIR / "config.json"
+PROJECT_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = PROJECT_DIR / "config.json"
 
 
 @dataclass
@@ -43,16 +43,16 @@ class SentinelConfig:
     # ---- paths ----
     @property
     def labels_dir(self) -> Path:
-        return SENTINEL_DIR / "labels"
+        return PROJECT_DIR / "labels"
 
     @property
     def models_dir(self) -> Path:
-        return SENTINEL_DIR / "models"
+        return PROJECT_DIR / "models"
 
     @property
     def debug_dir(self) -> Path:
         p = Path(self.display.debug_dir)
-        return p if p.is_absolute() else SENTINEL_DIR / p
+        return p if p.is_absolute() else PROJECT_DIR / p
 
 
 def _build_capture(cfg: dict) -> CaptureConfig:

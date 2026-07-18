@@ -17,16 +17,16 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
-from sentinel.capture.frame_buffer import RingFrameBuffer
-from sentinel.capture.grabber import FrameGrabber
-from sentinel.capture.window import (
+from capture.frame_buffer import RingFrameBuffer
+from capture.grabber import FrameGrabber
+from capture.window import (
     find_window_by_keyword,
     get_client_rect_on_screen,
     is_foreground,
 )
-from sentinel.config import SentinelConfig, load_config
-from sentinel.detectors.base import Detection, DetectorBase, DetectorRegistry
-from sentinel.display.overlay import OverlayWindow
+from config import SentinelConfig, load_config
+from detectors.base import Detection, DetectorBase, DetectorRegistry
+from display.overlay import OverlayWindow
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def _build_detectors(config: SentinelConfig) -> Dict[str, DetectorBase]:
     """根据 config.json 创建所有启用的检测器。"""
     # 确保 detectors 子模块已导入（触发 register 装饰器）
-    from sentinel.detectors import _ensure_loaded
+    from detectors import _ensure_loaded
     _ensure_loaded()
 
     detectors: Dict[str, DetectorBase] = {}
@@ -141,13 +141,13 @@ class Pipeline:
         keyword = self._config.capture.window_keyword
         hwnd = find_window_by_keyword(keyword)
         if hwnd is None:
-            print(f"[sentinel] 未找到窗口: {keyword}")
+            print(f"[spotting] 未找到窗口: {keyword}")
             return
 
         grabber = FrameGrabber(self._config.capture.backend)
-        print(f"[sentinel] 窗口已找到: hwnd={hwnd}")
-        print(f"[sentinel] 检测器: {', '.join(self._detectors.keys()) or '(无)'}")
-        print(f"[sentinel] 截图后端: {self._config.capture.backend}")
+        print(f"[spotting] 窗口已找到: hwnd={hwnd}")
+        print(f"[spotting] 检测器: {', '.join(self._detectors.keys()) or '(无)'}")
+        print(f"[spotting] 截图后端: {self._config.capture.backend}")
 
         if self._config.capture.use_frame_buffer:
             self._run_frame_buffer_mode(hwnd, grabber)
@@ -161,7 +161,7 @@ class Pipeline:
         interval = self._config.capture.interval
         foreground_only = self._config.capture.foreground_only
 
-        print(f"[sentinel] 标准模式启动 (interval={interval}s), 按 Q 退出...")
+        print(f"[spotting] 标准模式启动 (interval={interval}s), 按 Q 退出...")
 
         try:
             while True:
@@ -210,7 +210,7 @@ class Pipeline:
         finally:
             if self._overlay:
                 self._overlay.destroy()
-            print("\n[sentinel] 已停止")
+            print("\n[spotting] 已停止")
 
     # -----------------------------------------------------------------------
     # 帧缓冲模式
@@ -225,7 +225,7 @@ class Pipeline:
             return grabber.grab(hwnd, rect)
 
         buf.start(capture_fn)
-        print(f"[sentinel] 帧缓冲模式启动 (buffer_size={buf_size}), 按 Q 退出...")
+        print(f"[spotting] 帧缓冲模式启动 (buffer_size={buf_size}), 按 Q 退出...")
 
         last_stats_time = time.perf_counter()
 
@@ -285,7 +285,7 @@ class Pipeline:
             buf.stop()
             if self._overlay:
                 self._overlay.destroy()
-            print("\n[sentinel] 已停止")
+            print("\n[spotting] 已停止")
 
     # -----------------------------------------------------------------------
     # 辅助方法

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
-from sentinel.detectors.base import Detection, DetectorBase, DetectorRegistry
+from detectors.base import Detection, DetectorBase, DetectorRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +77,11 @@ class TemplateDetector(DetectorBase):
         for item in templates:
             name = item["name"]
             path = item["path"]
-            # 路径解析：支持相对 sentinel/ 目录的路径
+            # 路径解析：支持相对项目目录的路径
             p = Path(path)
             if not p.is_absolute():
-                from sentinel.config import SENTINEL_DIR
-                p = SENTINEL_DIR / p
+                from config import PROJECT_DIR
+                p = PROJECT_DIR / p
 
             if not p.exists():
                 logger.warning("模板图片不存在，跳过: %s -> %s", name, p)

@@ -44,7 +44,7 @@ class RingFrameBuffer:
         self._capture_thread = threading.Thread(
             target=self._capture_loop,
             daemon=True,
-            name="sentinel-frame-capture",
+            name="spotting-frame-capture",
         )
         self._capture_thread.start()
 

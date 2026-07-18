@@ -12,7 +12,7 @@ from typing import Any, Callable, List, Optional
 import win32con
 import win32gui
 
-from sentinel.detectors.base import Detection
+from detectors.base import Detection
 
 
 # ---------------------------------------------------------------------------

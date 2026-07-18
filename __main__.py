@@ -1,4 +1,4 @@
-"""sentinel 入口 — python -m sentinel | python run.py | python __main__.py"""
+"""RocoKingdom-Spotting 入口 — python run.py | python __main__.py"""
 
 from __future__ import annotations
 
@@ -7,15 +7,14 @@ import logging
 import sys
 from pathlib import Path
 
-# 独立项目兼容：确保父目录在 sys.path 中
-_this_dir = Path(__file__).resolve().parent
-_parent_dir = str(_this_dir.parent)
-if _parent_dir not in sys.path:
-    sys.path.insert(0, _parent_dir)
+# 将项目目录加入 sys.path
+_this_dir = str(Path(__file__).resolve().parent)
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="sentinel — 实时多目标识别")
+    parser = argparse.ArgumentParser(description="RocoKingdom-Spotting — 实时多目标识别")
     parser.add_argument(
         "--config",
         default=None,
@@ -37,12 +36,12 @@ def main() -> None:
     )
 
     # 配置
-    from sentinel.config import load_config
+    from config import load_config
     config_path = Path(args.config) if args.config else None
     config = load_config(config_path)
 
     # 流水线
-    from sentinel.pipeline import Pipeline
+    from pipeline import Pipeline
     pipeline = Pipeline(config)
     pipeline.setup()
     pipeline.run()
