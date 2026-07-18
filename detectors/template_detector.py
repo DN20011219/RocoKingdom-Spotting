@@ -212,3 +212,87 @@ class TemplateDetector(DetectorBase):
             return 0.0
         diff = cv2.absdiff(patch_bgr, template_bgr)
         return float(1.0 - np.mean(diff) / 255.0)
+
+    def diagnose(self, frame_bgr: np.ndarray) -> List[Dict[str, Any]]:
+        """诊断模式：返回每个模板的详细匹配信息（无论是否成功）。
+
+        返回 list[dict]，每个 dict 包含:
+            name, found, gray_score, color_score, x, y, w, h, threshold, color_threshold
+        """
+        if frame_bgr is None or frame_bgr.size == 0:
+            return []
+
+        frame_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        frame_h, frame_w = frame_gray.shape[:2]
+        results: List[Dict[str, Any]] = []
+
+        for entry in self._entries:
+            info = self._diagnose_single(entry, frame_bgr, frame_gray, frame_w, frame_h)
+            results.append(info)
+
+        return results
+
+    def _diagnose_single(
+        self,
+        entry: _TemplateEntry,
+        frame_bgr: np.ndarray,
+        frame_gray: np.ndarray,
+        frame_w: int,
+        frame_h: int,
+    ) -> Dict[str, Any]:
+        """对单个模板执行匹配并返回详细诊断信息。"""
+        roi_l = max(0, int(frame_w * entry.roi[0]))
+        roi_t = max(0, int(frame_h * entry.roi[1]))
+        roi_r = min(frame_w, int(frame_w * entry.roi[2]))
+        roi_b = min(frame_h, int(frame_h * entry.roi[3]))
+
+        if roi_r <= roi_l or roi_b <= roi_t:
+            return {"name": entry.name, "found": False,
+                    "gray_score": 0.0, "color_score": 0.0,
+                    "x": 0, "y": 0, "w": 0, "h": 0,
+                    "threshold": entry.threshold, "color_threshold": entry.color_threshold}
+
+        search_gray = frame_gray[roi_t:roi_b, roi_l:roi_r]
+        search_bgr = frame_bgr[roi_t:roi_b, roi_l:roi_r]
+
+        best_score = -1.0
+        best_color = -1.0
+        best_x, best_y, best_w, best_h = 0, 0, 0, 0
+
+        th, tw = entry.template_gray.shape[:2]
+
+        for scale in self._scales:
+            sw = max(1, int(tw * scale))
+            sh = max(1, int(th * scale))
+            if sw > search_gray.shape[1] or sh > search_gray.shape[0]:
+                continue
+
+            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+            resized_gray = cv2.resize(entry.template_gray, (sw, sh), interpolation=interp)
+
+            result = cv2.matchTemplate(search_gray, resized_gray, cv2.TM_CCORR_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+            patch = search_bgr[max_loc[1]:max_loc[1] + sh, max_loc[0]:max_loc[0] + sw]
+            resized_bgr = cv2.resize(entry.template_bgr, (sw, sh), interpolation=interp)
+            color = self._color_score(patch, resized_bgr)
+
+            if max_val > best_score:
+                best_score = float(max_val)
+                best_color = color
+                best_x = roi_l + max_loc[0]
+                best_y = roi_t + max_loc[1]
+                best_w = sw
+                best_h = sh
+
+        found = best_score >= entry.threshold and best_color >= entry.color_threshold
+
+        return {
+            "name": entry.name,
+            "found": found,
+            "gray_score": best_score,
+            "color_score": best_color,
+            "x": best_x, "y": best_y, "w": best_w, "h": best_h,
+            "threshold": entry.threshold,
+            "color_threshold": entry.color_threshold,
+        }

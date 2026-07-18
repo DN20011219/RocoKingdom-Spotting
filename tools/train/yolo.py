@@ -16,6 +16,18 @@ _project_root = str(Path(__file__).resolve().parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+# PowerShell 对 \r 回车覆盖支持不佳，导致 tqdm 进度条不断追加新行。
+# 检测到 PowerShell 时自动切换到 cmd.exe 重新执行。
+if sys.platform == "win32" and "POWERSHELL" in __import__("os").environ and not __import__("os").environ.get("_SPOTTING_CMD_SHELL"):
+    import subprocess
+    import shutil
+    import os
+    python_exe = shutil.which("python") or sys.executable
+    cmd = [python_exe] + sys.argv
+    env = os.environ.copy()
+    env["_SPOTTING_CMD_SHELL"] = "1"  # 标记已切换，防止递归
+    sys.exit(subprocess.call(cmd, shell=True, env=env))  # shell=True 在 Windows 上使用 cmd.exe
+
 import argparse
 import time
 

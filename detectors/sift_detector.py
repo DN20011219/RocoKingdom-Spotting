@@ -221,3 +221,110 @@ class SiftDetector(DetectorBase):
             h=best_h,
             threshold=entry.threshold,
         )
+
+    def diagnose(self, frame_bgr: np.ndarray) -> List[Dict[str, Any]]:
+        """诊断模式：返回每个模板的详细 SIFT 匹配信息（无论是否成功）。
+
+        返回 list[dict]，每个 dict 包含:
+            name, found, match_count, template_kp_count, frame_kp_count,
+            x, y, w, h, threshold
+        """
+        if frame_bgr is None or frame_bgr.size == 0:
+            return []
+
+        frame_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        frame_h, frame_w = frame_gray.shape[:2]
+
+        # 提取帧特征点（所有模板共享）
+        frame_kp, frame_desc = self._extract_features(frame_gray)
+        frame_kp_count = len(frame_kp) if frame_kp is not None else 0
+
+        if frame_desc is None:
+            return [
+                {"name": e.name, "found": False, "match_count": 0,
+                 "template_kp_count": len(e.kp), "frame_kp_count": frame_kp_count,
+                 "x": 0, "y": 0, "w": 0, "h": 0, "threshold": e.threshold}
+                for e in self._entries
+            ]
+
+        results: List[Dict[str, Any]] = []
+        for entry in self._entries:
+            info = self._diagnose_single(entry, frame_gray, frame_w, frame_h, frame_kp, frame_desc, frame_kp_count)
+            results.append(info)
+        return results
+
+    def _diagnose_single(
+        self,
+        entry: _SiftEntry,
+        frame_gray: np.ndarray,
+        frame_w: int,
+        frame_h: int,
+        frame_kp,
+        frame_desc: np.ndarray,
+        frame_kp_count: int,
+    ) -> Dict[str, Any]:
+        """对单个 SIFT 模板执行匹配并返回详细诊断信息。"""
+        roi_l = max(0, int(frame_w * entry.roi[0]))
+        roi_t = max(0, int(frame_h * entry.roi[1]))
+        roi_r = min(frame_w, int(frame_w * entry.roi[2]))
+        roi_b = min(frame_h, int(frame_h * entry.roi[3]))
+
+        if roi_r <= roi_l or roi_b <= roi_t:
+            return {"name": entry.name, "found": False, "match_count": 0,
+                    "template_kp_count": len(entry.kp), "frame_kp_count": frame_kp_count,
+                    "x": 0, "y": 0, "w": 0, "h": 0, "threshold": entry.threshold}
+
+        search_gray = frame_gray[roi_t:roi_b, roi_l:roi_r]
+
+        best_match_count = 0
+        best_x, best_y, best_w, best_h = 0, 0, 0, 0
+
+        th, tw = entry.template_gray.shape[:2]
+
+        for scale in self._scales:
+            sw = max(1, int(tw * scale))
+            sh = max(1, int(th * scale))
+            if sw > search_gray.shape[1] or sh > search_gray.shape[0]:
+                continue
+
+            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+            resized = cv2.resize(entry.template_gray, (sw, sh), interpolation=interp)
+
+            # 在 ROI 子图上做匹配
+            match_count = 0
+            dst_pts = None
+
+            search_kp, search_desc = self._extract_features(search_gray)
+            if search_desc is not None and search_desc.shape[0] >= 2:
+                raw_matches = self._bf_matcher.knnMatch(entry.template_desc, search_desc, k=2)
+                good_matches = []
+                for pair in raw_matches:
+                    if len(pair) == 2:
+                        m, n = pair
+                        if m.distance < self._ratio_threshold * n.distance:
+                            good_matches.append(m)
+                match_count = len(good_matches)
+
+                if good_matches:
+                    dst_pts = np.float32([search_kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 2)
+                    cx = np.mean(dst_pts[:, 0])
+                    cy = np.mean(dst_pts[:, 1])
+                    best_x = roi_l + int(cx - sw / 2)
+                    best_y = roi_t + int(cy - sh / 2)
+                    best_w = sw
+                    best_h = sh
+
+            if match_count > best_match_count:
+                best_match_count = match_count
+
+        found = best_match_count >= entry.threshold
+
+        return {
+            "name": entry.name,
+            "found": found,
+            "match_count": best_match_count,
+            "template_kp_count": len(entry.kp),
+            "frame_kp_count": frame_kp_count,
+            "x": best_x, "y": best_y, "w": best_w, "h": best_h,
+            "threshold": entry.threshold,
+        }

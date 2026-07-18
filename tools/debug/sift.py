@@ -1,258 +1,138 @@
-#!/usr/bin/env python3
-"""SIFT 特征点匹配诊断工具 — 支持单模板/全部模板测试。
+"""SIFT 特征匹配诊断 — 直接调用主流程 SiftDetector。
 
 用法:
-    cd RocoKingdom-Spotting
-    python tools/debug/sift.py                     # 测试所有 labels/*.png
-    python tools/debug/sift.py -t labels/hello.png # 只测单个模板
-    python tools/debug/sift.py --ratio 0.85 --save
+    python -m tools.debug.sift                      # 使用 config.json 中所有 sift 检测器
+    python -m tools.debug.sift --config my.json     # 指定配置文件
+    python -m tools.debug.sift --show               # 弹出 OpenCV 窗口显示匹配结果
 """
 
-import sys
-import time
-from pathlib import Path
+from __future__ import annotations
 
-# 路径自举：tools/debug/ -> tools/ -> 项目根目录
+import argparse
+import sys
+from pathlib import Path
+from typing import Any, Dict, List
+
+import cv2
+import numpy as np
+
+# 路径自举
 _project_root = str(Path(__file__).resolve().parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-import argparse
-import cv2
-import numpy as np
-
-from capture.window import find_window_by_keyword, get_client_rect_on_screen, is_foreground
+from capture.window import find_window_by_keyword, get_client_rect_on_screen
 from capture.grabber import FrameGrabber
+from config import load_config
+from detectors import _ensure_loaded
+from detectors.base import DetectorRegistry
 
 
-def _imwrite_unicode(path: str, img: np.ndarray) -> bool:
-    ext = Path(path).suffix
-    success, buf = cv2.imencode(ext, img)
-    if success:
-        with open(path, 'wb') as f:
-            f.write(buf.tobytes())
-        return True
-    return False
-
-
-def _match_template(sift, matcher, tpl_gray, tpl_bgr, tpl_name,
-                    search_gray, search_bgr, search_kp, search_desc,
-                    roi_l, roi_t, scales, ratio, threshold):
-    """对单个模板执行 SIFT 匹配，返回结果 dict。"""
-    th, tw = tpl_gray.shape[:2]
-
-    tpl_kp, tpl_desc = sift.detectAndCompute(tpl_gray, None)
-    if tpl_desc is None or len(tpl_kp) == 0:
-        return {"name": tpl_name, "found": False, "count": 0,
-                "error": "模板未提取到特征点"}
-
-    best_count = 0
-    best_matches = []
-    best_scale = 1.0
-    best_x, best_y, best_w, best_h = 0, 0, tw, th
-
-    for scale in scales:
-        sw = max(1, int(tw * scale))
-        sh = max(1, int(th * scale))
-        if sw > search_gray.shape[1] or sh > search_gray.shape[0]:
-            continue
-
-        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-        resized = cv2.resize(tpl_gray, (sw, sh), interpolation=interp)
-
-        scaled_kp, scaled_desc = sift.detectAndCompute(resized, None)
-        if scaled_desc is None or len(scaled_kp) == 0:
-            continue
-
-        matches = matcher.knnMatch(scaled_desc, search_desc, k=2)
-        good = [m for m, n in matches if m.distance < ratio * n.distance]
-        count = len(good)
-
-        if count > best_count:
-            best_count = count
-            best_matches = good
-            best_scale = scale
-
-            if good:
-                dst_pts = np.float32([search_kp[m.trainIdx].pt for m in good]).reshape(-1, 2)
-                cx, cy = np.mean(dst_pts[:, 0]), np.mean(dst_pts[:, 1])
-                best_x = roi_l + int(cx - sw / 2)
-                best_y = roi_t + int(cy - sh / 2)
-                best_w = sw
-                best_h = sh
-
+def _find_sift_detectors(config) -> Dict[str, Any]:
+    """从 config 中找到所有 type=sift 的检测器配置。"""
     return {
-        "name": tpl_name,
-        "found": best_count >= threshold,
-        "count": best_count,
-        "threshold": threshold,
-        "x": best_x, "y": best_y, "w": best_w, "h": best_h,
-        "scale": best_scale,
-        "tpl_kp": tpl_kp,
-        "tpl_bgr": tpl_bgr,
-        "matches": best_matches,
-        "search_kp": search_kp,
-        "search_bgr": search_bgr,
+        name: det_cfg
+        for name, det_cfg in config.detectors.items()
+        if det_cfg.get("type") == "sift" and det_cfg.get("enabled", True)
     }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="SIFT 特征点匹配诊断")
-    parser.add_argument("-t", "--template", default=None,
-                        help="单个模板路径，不指定则测试 labels/ 下所有 .png")
-    parser.add_argument("--threshold", type=float, default=5.0,
-                        help="好匹配点数量阈值 (默认: 5.0)")
-    parser.add_argument("--roi", nargs=4, type=float, default=[0, 0, 1, 1],
-                        metavar=("L", "T", "R", "B"),
-                        help="ROI 比例坐标 (默认: 0 0 1 1 即全屏)")
-    parser.add_argument("--scales", nargs="+", type=float, default=[1.0],
-                        help="缩放档位 (默认: 1.0)")
-    parser.add_argument("--ratio", type=float, default=0.8,
-                        help="Lowe's ratio test 阈值 (默认: 0.8, 越小越严格)")
-    parser.add_argument("--save", action="store_true",
-                        help="保存匹配结果可视化")
-    args = parser.parse_args()
-
-    # 1. 找窗口
-    keyword = "洛克王国"
-    print(f"[1] 查找窗口：{keyword}")
+def _capture_one_frame(keyword: str, backend: str) -> np.ndarray | None:
+    """截取一帧。"""
     hwnd = find_window_by_keyword(keyword)
     if hwnd is None:
-        print(f"    未找到窗口! 请确认游戏已打开")
-        return
-    print(f"    窗口句柄：{hwnd}")
+        print(f"[sift] 未找到窗口: {keyword}")
+        return None
 
-    if not is_foreground(hwnd):
-        print(f"    窗口不在前台，等待切换到前台...")
-        while not is_foreground(hwnd):
-            time.sleep(0.5)
-        print(f"    窗口已回到前台")
-
-    # 2. 截图
-    print(f"[2] 截图...")
     rect = get_client_rect_on_screen(hwnd)
-    left, top, width, height = rect
-    print(f"    客户区：{width}x{height} @ ({left},{top})")
-
-    grabber = FrameGrabber("screen-client")
+    grabber = FrameGrabber(backend)
     frame = grabber.grab(hwnd, rect)
+
     if frame is None or frame.size == 0:
-        print(f"    截图失败!")
-        return
-    print(f"    截图尺寸：{frame.shape[1]}x{frame.shape[0]}")
+        print("[sift] 截图失败")
+        return None
 
-    # 3. 收集模板列表
-    base_dir = Path(__file__).resolve().parent.parent.parent  # 项目根目录
-    if args.template:
-        tpl_paths = [base_dir / args.template]
-    else:
-        labels_dir = base_dir / "labels"
-        tpl_paths = sorted(labels_dir.glob("*.png"))
+    print(f"[sift] 截图: {frame.shape[1]}x{frame.shape[0]}, hwnd={hwnd}")
+    return frame
 
-    if not tpl_paths:
-        print(f"[3] 未找到模板文件!")
-        return
 
-    print(f"[3] 共 {len(tpl_paths)} 个模板待测试")
-
-    # 4. ROI
-    frame_h, frame_w = frame.shape[:2]
-    roi_l = max(0, int(frame_w * args.roi[0]))
-    roi_t = max(0, int(frame_h * args.roi[1]))
-    roi_r = min(frame_w, int(frame_w * args.roi[2]))
-    roi_b = min(frame_h, int(frame_h * args.roi[3]))
-    print(f"[4] ROI：({roi_l},{roi_t})-({roi_r},{roi_b}) = {roi_r-roi_l}x{roi_b-roi_t}")
-
-    search_gray = frame[roi_t:roi_b, roi_l:roi_r]
-    search_bgr = frame[roi_t:roi_b, roi_l:roi_r]
-
-    # 5. 提取搜索区域 SIFT 特征（只提取一次）
-    print(f"[5] 开始 SIFT 匹配 (threshold={args.threshold}, ratio={args.ratio})")
-    print(f"    scales: {args.scales}")
-
-    sift = cv2.SIFT_create()
-    matcher = cv2.BFMatcher(cv2.NORM_L2)
-
-    search_kp, search_desc = sift.detectAndCompute(search_gray, None)
-    print(f"    搜索区域特征点：{len(search_kp) if search_kp else 0}")
-    if search_desc is None or len(search_kp) == 0:
-        print(f"    搜索区域未提取到特征点!")
-        return
-
-    # 6. 逐个模板匹配
-    results = []
-    for i, tpl_path in enumerate(tpl_paths, 1):
-        if not tpl_path.exists():
-            print(f"\n  [{i}/{len(tpl_paths)}] {tpl_path.name} — 文件不存在，跳过")
-            continue
-
-        data = np.fromfile(str(tpl_path), dtype=np.uint8)
-        tpl = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
-        if tpl.ndim == 3 and tpl.shape[2] == 4:
-            tpl = cv2.cvtColor(tpl, cv2.COLOR_BGRA2BGR)
-        tpl_gray = cv2.cvtColor(tpl, cv2.COLOR_BGR2GRAY)
-
-        print(f"\n  [{i}/{len(tpl_paths)}] {tpl_path.name} ({tpl.shape[1]}x{tpl.shape[0]})")
-
-        res = _match_template(
-            sift, matcher, tpl_gray, tpl, tpl_path.name,
-            search_gray, search_bgr, search_kp, search_desc,
-            roi_l, roi_t, args.scales, args.ratio, args.threshold,
-        )
-
-        if res.get("error"):
-            print(f"    {res['error']}")
-        elif res["found"]:
-            print(f"    [OK] 好匹配点={res['count']}  位置=({res['x']},{res['y']})  尺寸={res['w']}x{res['h']}")
-        else:
-            print(f"    [FAIL] 好匹配点={res['count']} (阈值: {res['threshold']}, 差距: {res['threshold'] - res['count']})")
-
-        results.append(res)
-
-    # 7. 汇总
-    found_count = sum(1 for r in results if r.get("found"))
+def _print_diagnose_results(results: List[Dict[str, Any]], det_name: str) -> None:
+    """打印诊断结果。"""
     print(f"\n{'='*60}")
-    print(f"[汇总] {found_count}/{len(results)} 个模板匹配成功")
+    print(f"  检测器: {det_name}")
     print(f"{'='*60}")
 
-    # 8. 保存可视化
-    if args.save:
-        out_dir = Path(__file__).resolve().parent / "debug"
-        out_dir.mkdir(exist_ok=True)
+    for r in results:
+        status = "✓ 匹配" if r["found"] else "✗ 未匹配"
+        print(f"\n  [{status}] {r['name']}")
+        print(f"    匹配点数: {r['match_count']}  (阈值: {r['threshold']})")
+        print(f"    模板特征点: {r['template_kp_count']}")
+        print(f"    帧特征点: {r['frame_kp_count']}")
+        if r["found"]:
+            print(f"    位置: ({r['x']}, {r['y']})  尺寸: {r['w']}x{r['h']}")
 
-        _imwrite_unicode(str(out_dir / "frame.png"), frame)
 
-        # 在原图上画所有匹配框
-        result_img = frame.copy()
-        for res in results:
-            if res.get("found") and res["count"] > 0:
-                cv2.rectangle(result_img,
-                              (res["x"], res["y"]),
-                              (res["x"] + res["w"], res["y"] + res["h"]),
-                              (0, 255, 0), 2)
-                cv2.putText(result_img, f"{res['name']}:{res['count']}",
-                            (res["x"], res["y"] - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+def _draw_results(frame: np.ndarray, results: List[Dict[str, Any]]) -> np.ndarray:
+    """在帧上绘制诊断结果。"""
+    canvas = frame.copy()
 
-        _imwrite_unicode(str(out_dir / "match_result.png"), result_img)
+    for r in results:
+        if not r["found"]:
+            continue
+        x, y, w, h = r["x"], r["y"], r["w"], r["h"]
+        cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        label = f"{r['name']}:{r['match_count']}"
+        label_y = y - 8 if y - 8 > 15 else y + h + 15
+        cv2.putText(canvas, label, (x, label_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        # 每个模板的匹配连线图
-        for res in results:
-            if res.get("matches") and res["count"] > 0:
-                match_img = cv2.drawMatches(
-                    res["tpl_bgr"], res["tpl_kp"],
-                    res["search_bgr"], res["search_kp"],
-                    res["matches"][:20], None,
-                    flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-                )
-                _imwrite_unicode(str(out_dir / f"sift_{res['name']}.png"), match_img)
+    return canvas
 
-        print(f"\n[图片] 已保存到 {out_dir}/:")
-        print(f"    frame.png           - 原始截图")
-        print(f"    match_result.png    - 所有匹配框标注")
-        for res in results:
-            if res.get("matches") and res["count"] > 0:
-                print(f"    sift_{res['name']}.png - {res['name']} 匹配连线")
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="SIFT 特征匹配诊断（调用主流程 SiftDetector）")
+    parser.add_argument("--config", type=str, default=None, help="配置文件路径（默认 config.json）")
+    parser.add_argument("--show", action="store_true", help="显示匹配结果窗口")
+    args = parser.parse_args()
+
+    # 加载配置
+    config_path = Path(args.config) if args.config else None
+    config = load_config(config_path)
+
+    # 确保检测器已注册
+    _ensure_loaded()
+
+    # 找到所有 sift 检测器
+    sift_detectors = _find_sift_detectors(config)
+    if not sift_detectors:
+        print("[sift] 配置中没有启用的 sift 检测器")
+        return
+
+    # 截图
+    frame = _capture_one_frame(config.capture.window_keyword, config.capture.backend)
+    if frame is None:
+        return
+
+    # 对每个检测器执行诊断
+    all_results: Dict[str, List[Dict[str, Any]]] = {}
+    for name, det_cfg in sift_detectors.items():
+        params = det_cfg.get("params", {})
+        try:
+            detector = DetectorRegistry.create("sift", params)
+            results = detector.diagnose(frame)
+            all_results[name] = results
+            _print_diagnose_results(results, name)
+        except Exception as e:
+            print(f"[sift] 创建检测器 {name} 失败: {e}")
+
+    # 显示结果
+    if args.show:
+        for name, results in all_results.items():
+            canvas = _draw_results(frame, results)
+            cv2.imshow(f"SIFT Debug - {name}", canvas)
+        print("\n[sift] 按任意键关闭窗口...")
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

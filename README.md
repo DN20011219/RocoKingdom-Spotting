@@ -38,12 +38,13 @@ RocoKingdom-Spotting/
 │
 ├── tools/                   # 开发工具
 │   ├── capture.py           # 公用截图工具（窗口查找、截图、批量截帧）
+│   ├── hotkey_capture.py    # 热键截图（F12 触发，Interception 驱动）
 │   ├── debug/               # 检测算法诊断
 │   │   ├── match.py         #   模板匹配诊断（单模板/批量）
 │   │   ├── sift.py          #   SIFT 匹配诊断（含连线可视化）
 │   │   └── yolo.py          #   YOLO 检测诊断
 │   ├── yolo_tools/          # YOLO 数据集工具
-│   │   └── yolo_labeler.py  #   YOLO 数据标注（OpenCV GUI）
+│   │   └── yolo_labeler.py  #   YOLO 数据标注（截图 + 标注一体化）
 │   └── train/               # 模型训练
 │       └── yolo.py          #   YOLO 模型训练（ultralytics）
 │
@@ -198,17 +199,29 @@ python tools/debug/yolo.py --conf 0.5 --save          # 保存标注结果
 
 ## 数据标注
 
-`tools/yolo_tools/yolo_labeler.py` 提供基于 OpenCV GUI 的 YOLO 数据标注工具，支持从游戏窗口截图或加载本地图片。
+### 1. 截图
+
+`tools/hotkey_capture.py` 后台监听 F12 热键，按 F12 截取游戏窗口画面。
 
 ```bash
-# 从游戏窗口截图后标注
-python tools/yolo_tools/yolo_labeler.py --capture --classes pet1 pet2 pet3
+# 基本用法
+python tools/hotkey_capture.py --class pet1
+```
 
-# 标注本地图片
-python tools/yolo_tools/yolo_labeler.py --images path/to/images --classes pet1 pet2 pet3
+| 操作 | 功能 |
+|---|---|
+| `F12` | 截取当前窗口画面 |
+| `Esc` | 退出 |
 
-# 指定输出目录和截图参数
-python tools/yolo_tools/yolo_labeler.py --capture --classes a b --output datasets/my_data --capture-count 30 --capture-interval 0.5
+截图保存到 `datasets/yolo_dataset/images/<class>/`。
+
+### 2. 标注
+
+`tools/yolo_tools/yolo_labeler.py` 加载指定类别目录的图片并标注，支持断点续标。
+
+```bash
+# 基本用法：加载 images/<class>/ 目录下的图片并标注
+python tools/yolo_tools/yolo_labeler.py --class pet1
 ```
 
 **标注界面操作：**
@@ -228,8 +241,8 @@ python tools/yolo_tools/yolo_labeler.py --capture --classes a b --output dataset
 ## 模型训练
 
 ```bash
-python tools/train/yolo.py --data datasets/pets.yaml --model yolo11n.pt
-python tools/train/yolo.py --data datasets/pets.yaml --epochs 200 --batch 32
+python tools/train/yolo.py --data datasets/yolo_dataset/data.yaml --model yolo11n.pt
+python tools/train/yolo.py --data datasets/yolo_dataset/data.yaml --epochs 200 --batch 32
 python tools/train/yolo.py --resume                   # 恢复中断的训练
 ```
 

@@ -1,0 +1,26 @@
+# RocoKingdom-Spotting 依赖
+# 安装: pip install -r requirements.txt
+
+# 核心依赖
+opencv-python>=4.8.0
+numpy>=1.24.0
+pywin32>=306
+
+# YOLO 训练 (ultralytics 会自动安装 torch)
+ultralytics>=8.4.0
+
+# 图像处理
+Pillow>=10.0.0
+
+# GPU 训练 (可选，取消注释以安装 CUDA 版本)
+# 如需 GPU 加速，请先卸载 CPU 版 torch:
+#   pip uninstall torch torchvision -y
+# 然后安装 CUDA 版本:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+# torch>=2.13.0
+# torchvision>=0.18.0
+
+# 注意: InterceptionCore 来自 RocoKingdom-Clicker 项目
+# 本地路径: C:\Users\17676\Desktop\开发中\RocoKingdom-Clicker
+# 或从 GitHub 安装:
+#   pip install git+https://github.com/DN20011219/RocoKingdom-Clicker.git@main

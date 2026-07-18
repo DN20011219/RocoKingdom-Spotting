@@ -1,197 +1,175 @@
 #!/usr/bin/env python3
-"""热键截图工具 — 基于 Interception 驱动监听 F12，自动截取目标窗口画面。
+"""热键截图工具 — F12 触发截图，保存到 datasets/yolo_dataset/images/<class>/。
 
 用法:
-    python tools/hotkey_capture.py --output ./screenshots
-    python tools/hotkey_capture.py --output ./screenshots --keyword "洛克王国"
-    python tools/hotkey_capture.py --output ./screenshots --prefix frame --start 1
+    python tools/hotkey_capture.py --class pet1
 
-按 F12 截图（需目标窗口在前台），按 Esc 退出。
-需要 Interception 驱动已安装。
+操作:
+    F12: 截取当前窗口画面
+    Esc: 退出
+
+原理:
+    通过 Interception 驱动拦截所有键盘事件，检测到 F12 时触发截图，
+    然后将每个事件原样转发给系统，不影响正常键盘使用。
 """
 
 from __future__ import annotations
 
 import ctypes
 import sys
+import time
 from pathlib import Path
-from typing import Optional
 
 import cv2
+import numpy as np
 
-# 路径自举：tools/ -> 项目根目录
+# 路径自举
 _project_root = str(Path(__file__).resolve().parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from capture.window import find_window_by_keyword, get_client_rect_on_screen, is_foreground
+from capture.window import find_window_by_keyword, get_client_rect_on_screen
 from capture.grabber import FrameGrabber
+from config import load_config
 
-# 引入 RocoKingdom-Clicker 的 InterceptionCore
+# Interception 驱动路径
 _clicker_dir = r"C:\Users\17676\Desktop\开发中\RocoKingdom-Clicker"
 if _clicker_dir not in sys.path:
     sys.path.insert(0, _clicker_dir)
-
-from InterceptionCore import InterceptionCore, InterceptionKeyStroke
-
-
-# F12 扫描码
-_SCANCODE_F12 = 0x58
-_SCANCODE_ESC = 0x01
-
-# Interception 按键状态
-_KEY_DOWN = 0x00
-_KEY_UP = 0x01
-
-
-def capture_to_file(hwnd: int, output_dir: Path, prefix: str, index: int) -> Optional[Path]:
-    """截取一帧并保存到文件。"""
-    rect = get_client_rect_on_screen(hwnd)
-    grabber = FrameGrabber("screen-client")
-    frame = grabber.grab(hwnd, rect)
-
-    if frame is None or frame.size == 0:
-        return None
-
-    filename = f"{prefix}_{index:04d}.png"
-    filepath = output_dir / filename
-
-    success, buf = cv2.imencode(".png", frame)
-    if success:
-        with open(filepath, 'wb') as f:
-            f.write(buf.tobytes())
-        return filepath
-    return None
-
-
-def find_next_index(output_dir: Path, prefix: str) -> int:
-    """查找输出目录中下一个可用的索引。"""
-    if not output_dir.exists():
-        return 1
-
-    max_idx = 0
-    for f in output_dir.glob(f"{prefix}_*.png"):
-        try:
-            idx = int(f.stem.split('_')[-1])
-            max_idx = max(max_idx, idx)
-        except ValueError:
-            continue
-    return max_idx + 1
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="热键截图工具（Interception 驱动）")
-    parser.add_argument("--output", "-o", type=str, default="./screenshots", help="输出目录")
-    parser.add_argument("--keyword", "-k", type=str, default="洛克王国", help="窗口标题关键词")
-    parser.add_argument("--prefix", "-p", type=str, default="frame", help="文件名前缀")
-    parser.add_argument("--start", "-s", type=int, default=0, help="起始编号（0=自动检测）")
-
+    parser = argparse.ArgumentParser(description="热键截图工具")
+    parser.add_argument("--class", dest="class_name", type=str, required=True,
+                        help="类别名称（如 pet1）")
     args = parser.parse_args()
 
-    output_dir = Path(args.output)
+    class_name = args.class_name
+
+    # 加载配置获取窗口关键词
+    cfg = load_config()
+    keyword = cfg.capture.window_keyword
+
+    # 输出目录
+    output_dir = Path(_project_root) / "datasets" / "yolo_dataset" / "images" / class_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 初始化 Interception
+    # 计算已有帧编号
+    existing = sorted(output_dir.glob("frame_*.png"))
+    next_idx = len(existing) + 1
+
+    # 查找窗口
+    hwnd = find_window_by_keyword(keyword)
+    if hwnd is None:
+        print(f"[hotkey] 未找到窗口: {keyword}")
+        return
+
+    grabber = FrameGrabber("screen-client")
+
+    print(f"\n[hotkey] 热键截图模式")
+    print(f"  类别: {class_name}")
+    print(f"  输出: {output_dir}")
+    print(f"  F12: 截图 | Esc: 退出")
+    print(f"  (拦截后原样转发，不影响键盘使用)\n")
+
+    # 导入 Interception
+    try:
+        from InterceptionCore import InterceptionCore, InterceptionKeyStroke
+    except ImportError as e:
+        print(f"[hotkey] 无法加载 InterceptionCore: {e}")
+        print(f"  请确认 RocoKingdom-Clicker 路径: {_clicker_dir}")
+        return
+
+    # 初始化 Interception（构造函数自动初始化）
     core = InterceptionCore()
     if not core.is_ready():
         print(f"[hotkey] Interception 初始化失败:")
         print(f"  {core.init_error}")
-        sys.exit(1)
+        return
 
     lib = core._lib
     ctx = core._ctx
 
-    # 设置键盘过滤器：监听所有键盘事件
-    INTERCEPTION_FILTER_KEY_ALL = 0xFFFF
-    is_keyboard_pred = lib._is_keyboard_pred
-    lib.interception_set_filter(ctx, is_keyboard_pred, ctypes.c_ushort(INTERCEPTION_FILTER_KEY_ALL))
+    # 设置过滤器：拦截所有键盘事件（按下 + 释放）
+    KEY_DOWN = 0x01
+    KEY_UP = 0x02
+    FILTER = KEY_DOWN | KEY_UP
+    lib.interception_set_filter(ctx, lib._is_keyboard_pred, FILTER)
 
-    # 查找窗口
-    print(f"[hotkey] 查找窗口：{args.keyword}")
-    hwnd = find_window_by_keyword(args.keyword)
-    if hwnd is None:
-        print(f"[hotkey] 未找到窗口！请先打开目标窗口。")
-        sys.exit(1)
-    print(f"[hotkey] 窗口句柄：{hwnd}")
+    # 临时替换 send/receive 的 argtypes 为键盘版本
+    orig_send_argtypes = lib.interception_send.argtypes
+    orig_send_restype = lib.interception_send.restype
+    orig_recv_argtypes = lib.interception_receive.argtypes
+    orig_recv_restype = lib.interception_receive.restype
 
-    # 确定起始编号
-    if args.start > 0:
-        next_idx = args.start
-    else:
-        next_idx = find_next_index(output_dir, args.prefix)
+    lib.interception_send.argtypes = [
+        ctypes.c_void_p, ctypes.c_int,
+        ctypes.POINTER(InterceptionKeyStroke), ctypes.c_uint,
+    ]
+    lib.interception_send.restype = ctypes.c_int
 
-    print(f"[hotkey] 输出目录：{output_dir}")
-    print(f"[hotkey] 文件前缀：{args.prefix}")
-    print(f"[hotkey] 起始编号：{next_idx}")
-    print(f"\n[hotkey] 按 F12 截图（需窗口在前台），按 Esc 退出\n")
-    print("[hotkey] 热键监听已启动（Interception 驱动）...")
-
-    # 分配键盘 stroke 缓冲区
-    stroke_buf = (InterceptionKeyStroke * 1)()
-
-    # 保存原始 argtypes 并临时替换为键盘版本
-    _orig_receive_argtypes = lib.interception_receive.argtypes
-    _orig_receive_restype = lib.interception_receive.restype
     lib.interception_receive.argtypes = [
-        ctypes.c_void_p,   # context
-        ctypes.c_int,      # device
-        ctypes.POINTER(InterceptionKeyStroke),  # stroke
-        ctypes.c_uint,     # count
+        ctypes.c_void_p, ctypes.c_int,
+        ctypes.POINTER(InterceptionKeyStroke), ctypes.c_uint,
     ]
     lib.interception_receive.restype = ctypes.c_int
 
+    captured_count = 0
+
     try:
         while True:
-            # 等待输入事件（超时 100ms，便于检查退出条件）
-            device = lib.interception_wait_with_timeout(ctx, ctypes.c_ulong(100))
-            if device <= 0:
-                continue
+            # 等待下一个键盘事件（阻塞，无延迟）
+            device = lib.interception_wait(ctx)
 
-            # 只处理键盘事件
-            if not lib.interception_is_keyboard(device):
-                continue
+            # 读取事件
+            stroke = InterceptionKeyStroke()
+            lib.interception_receive(ctx, device, ctypes.byref(stroke), 1)
 
-            # 接收按键事件
-            received = lib.interception_receive(ctx, device, stroke_buf, 1)
-            if received <= 0:
-                continue
+            # 原样转发给系统（不影响键盘使用）
+            lib.interception_send(ctx, device, ctypes.byref(stroke), 1)
 
-            code = stroke_buf[0].code
-            state = stroke_buf[0].state
+            # 检测 F12 按下（scan code 0x58）
+            if stroke.code == 0x58 and stroke.state == KEY_DOWN:
+                rect = get_client_rect_on_screen(hwnd)
+                frame = grabber.grab(hwnd, rect)
 
-            # 只响应按下事件（避免重复触发）
-            if state != _KEY_DOWN:
-                continue
-
-            if code == _SCANCODE_F12:
-                if not is_foreground(hwnd):
-                    print(f"[hotkey] 窗口不在前台，跳过")
-                    continue
-
-                filepath = capture_to_file(hwnd, output_dir, args.prefix, next_idx)
-                if filepath:
-                    print(f"[hotkey] 已保存：{filepath.name}")
-                    next_idx += 1
+                if frame is not None and frame.size > 0:
+                    filename = f"frame_{next_idx:04d}.png"
+                    filepath = output_dir / filename
+                    success, buf = cv2.imencode(".png", frame)
+                    if success:
+                        with open(filepath, 'wb') as f:
+                            f.write(buf.tobytes())
+                        captured_count += 1
+                        print(f"  [{captured_count}] {filename}")
+                        next_idx += 1
                 else:
-                    print(f"[hotkey] 截图失败")
+                    print("  [截图失败]")
 
-            elif code == _SCANCODE_ESC:
-                print("\n[hotkey] 已退出")
+            # 检测 Esc 按下（scan code 0x01）
+            elif stroke.code == 0x01 and stroke.state == KEY_DOWN:
+                print("\n[hotkey] 退出")
                 break
 
     except KeyboardInterrupt:
-        print("\n[hotkey] 已退出")
-
+        pass
     finally:
-        # 恢复原始 argtypes 并清除过滤器
+        # 恢复 argtypes
+        lib.interception_send.argtypes = orig_send_argtypes
+        lib.interception_send.restype = orig_send_restype
+        lib.interception_receive.argtypes = orig_recv_argtypes
+        lib.interception_receive.restype = orig_recv_restype
+        # 清除过滤器
+        lib.interception_set_filter(ctx, lib._is_keyboard_pred, 0)
+        # 销毁上下文
         try:
-            lib.interception_receive.argtypes = _orig_receive_argtypes
-            lib.interception_receive.restype = _orig_receive_restype
-            lib.interception_set_filter(ctx, is_keyboard_pred, ctypes.c_ushort(0))
+            lib.interception_destroy_context(ctx)
         except Exception:
             pass
+
+    print(f"\n[hotkey] 共截取 {captured_count} 张图片到 {output_dir}")
 
 
 if __name__ == "__main__":

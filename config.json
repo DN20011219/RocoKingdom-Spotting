@@ -14,9 +14,9 @@
   "detectors": {
     "yolo_pets": {
       "type": "yolo",
-      "enabled": false,
+      "enabled": true,
       "params": {
-        "model_path": "models/yolo26s.pt",
+        "model_path": "models/qjk.pt",
         "device": "auto",
         "conf": 0.4,
         "imgsz": 640,
@@ -25,7 +25,7 @@
     },
     "flat_labels": {
       "type": "template",
-      "enabled": true,
+      "enabled": false,
       "params": {
         "device": "cpu",
         "default_threshold": 0.85,
