@@ -16,11 +16,11 @@
       "type": "yolo",
       "enabled": true,
       "params": {
-        "model_path": "models/qjk.pt",
+        "model_path": "models/best.pt",
         "device": "auto",
         "conf": 0.4,
         "imgsz": 640,
-        "half": false
+        "quantize": false
       }
     },
     "flat_labels": {

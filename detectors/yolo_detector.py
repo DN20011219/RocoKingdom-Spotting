@@ -39,7 +39,7 @@ class YoloDetector(DetectorBase):
         device: str — "auto" / "cuda:0" / "cpu"
         conf: float — 置信度阈值
         imgsz: int — 推理图片尺寸（320/416/640）
-        half: bool — 是否 FP16 推理（GPU 加速）
+        quantize: bool — 是否 FP16 推理（GPU 加速，旧版参数名 half 仍兼容）
         classes: list[int] | None — 只检测指定类别
     """
 
@@ -49,7 +49,8 @@ class YoloDetector(DetectorBase):
         device: str = "auto",
         conf: float = 0.4,
         imgsz: int = 640,
-        half: bool = False,
+        quantize: bool = False,
+        half: bool = False,  # 向后兼容，优先使用 quantize
         classes: Optional[List[int]] = None,
         **_kwargs: Any,
     ) -> None:
@@ -57,7 +58,7 @@ class YoloDetector(DetectorBase):
         self._device_str = device
         self._conf = conf
         self._imgsz = imgsz
-        self._half = half
+        self._quantize = quantize or half
         self._classes = classes
         self._model: Any = None
         self._resolved_device: str = ""
@@ -86,8 +87,8 @@ class YoloDetector(DetectorBase):
             self._class_names = self._model.names
 
         logger.info(
-            "YoloDetector: 模型已加载 %s (device=%s, conf=%.2f, imgsz=%d, half=%s)",
-            p.name, self._resolved_device, self._conf, self._imgsz, self._half,
+            "YoloDetector: 模型已加载 %s (device=%s, conf=%.2f, imgsz=%d, quantize=%s)",
+            p.name, self._resolved_device, self._conf, self._imgsz, self._quantize,
         )
 
     def warmup(self) -> None:
@@ -101,7 +102,7 @@ class YoloDetector(DetectorBase):
                 device=self._resolved_device,
                 imgsz=self._imgsz,
                 conf=self._conf,
-                half=self._half,
+                quantize=self._quantize,
                 verbose=False,
             )
             logger.info("YoloDetector: 预热完成")
@@ -117,7 +118,7 @@ class YoloDetector(DetectorBase):
             device=self._resolved_device,
             imgsz=self._imgsz,
             conf=self._conf,
-            half=self._half,
+            quantize=self._quantize,
             classes=self._classes,
             verbose=False,
         )

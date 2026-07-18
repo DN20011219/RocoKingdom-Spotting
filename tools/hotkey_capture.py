@@ -32,11 +32,6 @@ from capture.window import find_window_by_keyword, get_client_rect_on_screen
 from capture.grabber import FrameGrabber
 from config import load_config
 
-# Interception 驱动路径
-_clicker_dir = r"C:\Users\17676\Desktop\开发中\RocoKingdom-Clicker"
-if _clicker_dir not in sys.path:
-    sys.path.insert(0, _clicker_dir)
-
 
 def main():
     import argparse
@@ -79,7 +74,7 @@ def main():
         from InterceptionCore import InterceptionCore, InterceptionKeyStroke
     except ImportError as e:
         print(f"[hotkey] 无法加载 InterceptionCore: {e}")
-        print(f"  请确认 RocoKingdom-Clicker 路径: {_clicker_dir}")
+        print(f"  请确认 InterceptionCore.py 和 third/Interception/library/x64/interception.dll 存在")
         return
 
     # 初始化 Interception（构造函数自动初始化）

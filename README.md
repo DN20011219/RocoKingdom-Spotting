@@ -49,7 +49,10 @@ RocoKingdom-Spotting/
 │       └── yolo.py          #   YOLO 模型训练（ultralytics）
 │
 ├── labels/                  # 模板图片目录
-└── models/                  # YOLO 模型目录（.pt 文件）
+├── models/                  # YOLO 模型目录（.pt 文件）
+├── InterceptionCore.py      # Interception 驱动封装（来自 RocoKingdom-Clicker）
+└── third/                   # 第三方库
+    └── Interception/library/x64/interception.dll
 ```
 
 ## 快速开始
@@ -60,6 +63,26 @@ RocoKingdom-Spotting/
 pip install opencv-python pywin32 numpy
 # 如需 YOLO 检测器或训练：
 pip install ultralytics
+```
+
+### GPU 训练环境
+
+项目训练脚本会自动检测 GPU（`--device auto`），但需要安装 **CUDA 版本的 PyTorch**。
+
+检查当前 PyTorch 是否支持 CUDA：
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+如果版本带 `+cpu` 后缀或 `cuda.is_available()` 为 `False`，说明装的是 CPU 版，需要重装。根据 GPU 型号选择对应 CUDA 版本：
+
+```bash
+# RTX 50 系列（Blackwell，需 CUDA 12.8+）
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
+
+# RTX 30/40 系列（Ampere/Ada，CUDA 12.4 即可）
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
 ```
 
 ### 运行
@@ -103,7 +126,7 @@ python run.py --config path/to.json   # 指定配置文件
 基于 ultralytics，支持 GPU/CPU 自动选择。适合 3D 场景中的物体检测。
 
 - 延迟加载模型，避免启动阻塞
-- 支持 FP16 推理加速（`half`）
+- 支持 FP16 推理加速（`quantize`，兼容旧版 `half` 参数）
 - 支持类别过滤（`classes`）
 
 ### 选择指南
@@ -142,7 +165,7 @@ python run.py --config path/to.json   # 指定配置文件
         "device": "auto",
         "conf": 0.4,
         "imgsz": 640,
-        "half": false
+        "quantize": false
       }
     },
     "flat_labels": {
@@ -241,12 +264,15 @@ python tools/yolo_tools/yolo_labeler.py --class pet1
 ## 模型训练
 
 ```bash
-python tools/train/yolo.py --data datasets/yolo_dataset/data.yaml --model yolo11n.pt
-python tools/train/yolo.py --data datasets/yolo_dataset/data.yaml --epochs 200 --batch 32
-python tools/train/yolo.py --resume                   # 恢复中断的训练
+python tools/train/yolo.py                                  # 使用默认数据集和参数
+python tools/train/yolo.py --epochs 200 --batch 32          # 自定义训练参数
+python tools/train/yolo.py --data datasets/other.yaml       # 指定其他数据集
+python tools/train/yolo.py --resume                         # 恢复中断的训练
 ```
 
-训练完成后模型保存在 `runs/detect/<name>/weights/best.pt`，可复制到 `models/` 目录供检测使用。
+训练完成后：
+- 原始模型保存在 `runs/detect/<name>/weights/best.pt`
+- 最佳模型自动复制到 `models/<name>_<时间戳>.pt`，并生成同名 `.txt` 说明文档（含可识别类别、训练参数、关键指标）
 
 ## 扩展新检测器
 
@@ -281,3 +307,12 @@ python tools/train/yolo.py --resume                   # 恢复中断的训练
 ```json
 {"time":"14:30:25","capture_ms":8.0,"detect_ms":35.0,"render_ms":3.0,"total_ms":46.0,"detections":[...]}
 ```
+
+## 致谢
+
+| 项目 | 用途 |
+|---|---|
+| [ultralytics/yolov5](https://github.com/ultralytics/ultralytics) | YOLO 目标检测框架及预训练模型 |
+| [opencv](https://opencv.org/) | 图像处理与模板匹配 |
+| [Interception](https://github.com/oblitum/Interception) | 内核级输入设备拦截驱动 |
+| [RocoKingdom-Clicker](https://github.com/DN20011219/RocoKingdom-Clicker) | InterceptionCore 模块（已拷贝至本项目） |

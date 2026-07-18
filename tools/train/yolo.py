@@ -3,9 +3,10 @@
 
 用法:
     cd RocoKingdom-Spotting
-    python tools/train/yolo.py --data datasets/pets.yaml --model yolo11n.pt
-    python tools/train/yolo.py --data datasets/pets.yaml --epochs 200 --batch 32
-    python tools/train/yolo.py --resume  # 恢复中断的训练
+    python tools/train/yolo.py                                  # 使用默认数据集
+    python tools/train/yolo.py --data datasets/other.yaml       # 自定义数据集
+    python tools/train/yolo.py --epochs 200 --batch 32          # 自定义参数
+    python tools/train/yolo.py --resume                         # 恢复中断的训练
 """
 
 import sys
@@ -18,7 +19,7 @@ if _project_root not in sys.path:
 
 # PowerShell 对 \r 回车覆盖支持不佳，导致 tqdm 进度条不断追加新行。
 # 检测到 PowerShell 时自动切换到 cmd.exe 重新执行。
-if sys.platform == "win32" and "POWERSHELL" in __import__("os").environ and not __import__("os").environ.get("_SPOTTING_CMD_SHELL"):
+if sys.platform == "win32" and "PSMODULEPATH" in __import__("os").environ and not __import__("os").environ.get("_SPOTTING_CMD_SHELL"):
     import subprocess
     import shutil
     import os
@@ -29,7 +30,9 @@ if sys.platform == "win32" and "POWERSHELL" in __import__("os").environ and not 
     sys.exit(subprocess.call(cmd, shell=True, env=env))  # shell=True 在 Windows 上使用 cmd.exe
 
 import argparse
+import shutil
 import time
+from datetime import datetime
 
 
 def _resolve_device(device: str) -> str:
@@ -47,8 +50,8 @@ def _resolve_device(device: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="YOLO 模型训练")
-    parser.add_argument("--data", type=str, required=False, default=None,
-                        help="数据集配置文件路径 (YOLO 格式 yaml)")
+    parser.add_argument("--data", type=str, default="datasets/yolo_dataset/data.yaml",
+                        help="数据集配置文件路径 (默认: datasets/yolo_dataset/data.yaml)")
     parser.add_argument("--model", type=str, default="yolo11n.pt",
                         help="基础模型/预训练权重 (默认: yolo11n.pt)")
     parser.add_argument("--epochs", type=int, default=100,
@@ -110,10 +113,6 @@ def main():
         return
 
     # 正常训练
-    if not args.data:
-        print("[错误] 必须指定 --data 数据集配置文件")
-        sys.exit(1)
-
     data_path = Path(args.data)
     if not data_path.is_absolute():
         data_path = Path(__file__).resolve().parent.parent.parent / data_path
@@ -188,8 +187,66 @@ def main():
     if last_model.exists():
         print(f"    最新模型: {last_model}")
 
-    print(f"\n[提示] 可将最佳模型复制到 models/ 目录供检测使用:")
-    print(f"    cp {best_model} models/your_model_name.pt")
+    # 自动复制最佳模型到 models/ 并生成说明文档
+    if best_model.exists():
+        models_dir = Path(__file__).resolve().parent.parent.parent / "models"
+        models_dir.mkdir(exist_ok=True)
+
+        # 从 data.yaml 读取类别名
+        class_names: list[str] = []
+        try:
+            import yaml
+            with open(data_path, "r", encoding="utf-8") as f:
+                data_cfg = yaml.safe_load(f)
+            if data_cfg and "names" in data_cfg:
+                class_names = list(data_cfg["names"])
+        except Exception:
+            pass
+
+        # 以训练完成时间为后缀命名
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name = f"{args.name}_{ts}"
+        dest_model = models_dir / f"{model_name}.pt"
+        shutil.copy2(str(best_model), str(dest_model))
+        print(f"\n[导出] 最佳模型已复制到 models/:")
+        print(f"    {dest_model}")
+
+        # 生成模型说明文档
+        doc_path = models_dir / f"{model_name}.txt"
+        lines = [
+            f"模型: {model_name}.pt",
+            f"训练完成: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"训练耗时: {elapsed / 60:.1f} 分钟",
+            f"基础模型: {args.model}",
+            f"训练轮数: {args.epochs}",
+            f"图片尺寸: {args.imgsz}",
+            f"Batch size: {args.batch}",
+            f"设备: {resolved_device}",
+            f"数据集: {data_path}",
+            f"",
+            f"可识别类别 ({len(class_names)} 个):",
+        ]
+        for i, name in enumerate(class_names):
+            lines.append(f"  [{i}] {name}")
+        if not class_names:
+            lines.append("  (未能从 data.yaml 读取类别信息)")
+
+        # 补充关键指标
+        if results and hasattr(results, 'results_dict'):
+            metrics = results.results_dict
+            lines.append("")
+            lines.append("关键指标:")
+            for k in ("metrics/mAP50(B)", "metrics/mAP50-95(B)", "metrics/precision(B)", "metrics/recall(B)"):
+                if k in metrics:
+                    lines.append(f"  {k}: {metrics[k]:.4f}")
+
+        with open(doc_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        print(f"[导出] 模型说明已保存到:")
+        print(f"    {doc_path}")
+    else:
+        print(f"\n[提示] 可将最佳模型复制到 models/ 目录供检测使用:")
+        print(f"    cp {best_model} models/your_model_name.pt")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,5 @@ Pillow>=10.0.0
 # torch>=2.13.0
 # torchvision>=0.18.0
 
-# 注意: InterceptionCore 来自 RocoKingdom-Clicker 项目
-# 本地路径: C:\Users\17676\Desktop\开发中\RocoKingdom-Clicker
-# 或从 GitHub 安装:
-#   pip install git+https://github.com/DN20011219/RocoKingdom-Clicker.git@main
+# InterceptionCore 已拷贝到项目根目录（来自 RocoKingdom-Clicker 项目）
+# 包含: InterceptionCore.py + third/Interception/library/x64/interception.dll
