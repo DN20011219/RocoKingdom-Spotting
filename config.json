@@ -1,0 +1,60 @@
+{
+  "window_keyword": "洛克王国：世界",
+  "capture_backend": "screen-client",
+  "use_frame_buffer": true,
+  "frame_buffer_size": 10,
+  "foreground_only": true,
+  "show_overlay": true,
+  "print_json": false,
+  "interval": 0.1,
+  "debug": false,
+  "debug_dir": "debug_frames",
+  "debug_save_interval": 10,
+
+  "detectors": {
+    "yolo_pets": {
+      "type": "yolo",
+      "enabled": false,
+      "params": {
+        "model_path": "models/yolo26s.pt",
+        "device": "auto",
+        "conf": 0.4,
+        "imgsz": 640,
+        "half": false
+      }
+    },
+    "flat_labels": {
+      "type": "template",
+      "enabled": true,
+      "params": {
+        "device": "cpu",
+        "default_threshold": 0.85,
+        "default_color_threshold": 0.85,
+        "scales": [0.85, 1.0, 1.15],
+        "templates": [
+          {
+            "name": "hello",
+            "path": "labels/hello.png",
+            "threshold": 0.85,
+            "color_threshold": 0.85,
+            "roi": [0.0, 0.0, 1.0, 1.0]
+          },
+          {
+            "name": "stop",
+            "path": "labels/stop.png",
+            "threshold": 0.85,
+            "color_threshold": 0.85,
+            "roi": [0.0, 0.0, 1.0, 1.0]
+          },
+          {
+            "name": "draw",
+            "path": "labels/draw.png",
+            "threshold": 0.85,
+            "color_threshold": 0.85,
+            "roi": [0.0, 0.0, 1.0, 1.0]
+          }
+        ]
+      }
+    }
+  }
+}
