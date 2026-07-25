@@ -2,7 +2,7 @@
 
 支持两种运行模式：
 - 标准模式：按 interval 周期截帧，单线程处理
-- 帧缓冲模式：截帧线程连续写入环形缓冲区，匹配线程取最新帧处理
+- 逐帧模式：截一帧分析完再截下一帧，无缓冲无等待
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
-from capture.frame_buffer import RingFrameBuffer
 from capture.grabber import FrameGrabber
 from capture.window import (
     find_window_by_keyword,
@@ -213,45 +212,41 @@ class Pipeline:
             print("\n[spotting] 已停止")
 
     # -----------------------------------------------------------------------
-    # 帧缓冲模式
+    # 逐帧模式（截一帧 → 分析完 → 立刻截下一帧）
     # -----------------------------------------------------------------------
     def _run_frame_buffer_mode(self, hwnd: int, grabber: FrameGrabber) -> None:
-        buf_size = self._config.capture.frame_buffer_size
         foreground_only = self._config.capture.foreground_only
-        buf = RingFrameBuffer(maxlen=buf_size)
 
-        def capture_fn():
-            rect = get_client_rect_on_screen(hwnd)
-            return grabber.grab(hwnd, rect)
+        print("[spotting] 逐帧模式启动（分析完即截下一帧）, 按 Q 退出...")
 
-        buf.start(capture_fn)
-        print(f"[spotting] 帧缓冲模式启动 (buffer_size={buf_size}), 按 Q 退出...")
-
-        last_stats_time = time.perf_counter()
+        frames_processed = 0
+        start_time = time.perf_counter()
+        last_stats_time = start_time
 
         try:
             while True:
-                frame_and_ts = buf.wait_for_frame(timeout=0.05)
-                if frame_and_ts is None:
-                    continue
-
-                frame, _ = frame_and_ts
-                if frame is None or frame.size == 0:
-                    continue
-
                 if foreground_only and not is_foreground(hwnd):
                     if self._overlay:
                         self._overlay.hide()
+                    time.sleep(0.05)
                     continue
 
                 tick = time.perf_counter()
+
+                # 截帧
+                tick_cap = time.perf_counter()
+                rect = get_client_rect_on_screen(hwnd)
+                frame = grabber.grab(hwnd, rect)
+                capture_ms = (time.perf_counter() - tick_cap) * 1000
+
+                if frame is None or frame.size == 0:
+                    time.sleep(0.001)
+                    continue
 
                 # 检测
                 tick_detect = time.perf_counter()
                 detections = _run_detectors(self._detectors, frame)
                 detect_ms = (time.perf_counter() - tick_detect) * 1000
-
-                buf.mark_processed()
 
                 # 渲染
                 tick_render = time.perf_counter()
@@ -259,7 +254,9 @@ class Pipeline:
                 render_ms = (time.perf_counter() - tick_render) * 1000
 
                 total_ms = (time.perf_counter() - tick) * 1000
-                self._print_status(detections, 0, detect_ms, render_ms, total_ms)
+                self._print_status(detections, capture_ms, detect_ms, render_ms, total_ms)
+
+                frames_processed += 1
 
                 # 调试保存
                 if self._config.display.debug:
@@ -271,10 +268,9 @@ class Pipeline:
                 # 定期打印统计
                 now = time.perf_counter()
                 if now - last_stats_time >= 5.0:
-                    stats = buf.get_stats()
-                    print(f"\n[stats] capture_fps={stats['capture_fps']}, "
-                          f"process_fps={stats['process_fps']}, "
-                          f"buffer_depth={stats['buffer_depth']}")
+                    elapsed = now - start_time
+                    fps = frames_processed / max(elapsed, 0.01)
+                    print(f"\n[stats] process_fps={fps:.1f}, frames={frames_processed}")
                     last_stats_time = now
 
                 if (cv2.waitKey(1) & 0xFF) == ord("q"):
@@ -282,7 +278,6 @@ class Pipeline:
         except KeyboardInterrupt:
             pass
         finally:
-            buf.stop()
             if self._overlay:
                 self._overlay.destroy()
             print("\n[spotting] 已停止")
