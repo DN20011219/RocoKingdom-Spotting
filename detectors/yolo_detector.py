@@ -94,17 +94,20 @@ class YoloDetector(DetectorBase):
     def warmup(self) -> None:
         """预热模型，避免首帧延迟。"""
         self._ensure_model()
+        # 构建推理参数（quantize=False 时不传递，新版 ultralytics 不接受 False）
+        predict_kwargs: dict = dict(
+            device=self._resolved_device,
+            imgsz=self._imgsz,
+            conf=self._conf,
+            verbose=False,
+        )
+        if self._quantize:
+            predict_kwargs["quantize"] = self._quantize
+
         try:
             # 用一个空图像跑一次推理，触发 CUDA kernel 编译
             dummy = np.zeros((self._imgsz, self._imgsz, 3), dtype=np.uint8)
-            self._model.predict(
-                dummy,
-                device=self._resolved_device,
-                imgsz=self._imgsz,
-                conf=self._conf,
-                quantize=self._quantize,
-                verbose=False,
-            )
+            self._model.predict(dummy, **predict_kwargs)
             logger.info("YoloDetector: 预热完成")
         except Exception as e:
             logger.warning("YoloDetector: 预热失败（不影响后续使用）: %s", e)
@@ -113,15 +116,19 @@ class YoloDetector(DetectorBase):
         """执行 YOLO 推理，返回所有检测到的目标。"""
         self._ensure_model()
 
-        results = self._model.predict(
-            frame_bgr,
+        # 构建推理参数（quantize=False 时不传递，新版 ultralytics 不接受 False）
+        predict_kwargs: dict = dict(
             device=self._resolved_device,
             imgsz=self._imgsz,
             conf=self._conf,
-            quantize=self._quantize,
-            classes=self._classes,
             verbose=False,
         )
+        if self._quantize:
+            predict_kwargs["quantize"] = self._quantize
+        if self._classes is not None:
+            predict_kwargs["classes"] = self._classes
+
+        results = self._model.predict(frame_bgr, **predict_kwargs)
 
         detections: List[Detection] = []
         for r in results:
