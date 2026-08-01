@@ -155,12 +155,16 @@ class SiftDetector(DetectorBase):
 
         search_gray = frame_gray[roi_t:roi_b, roi_l:roi_r]
 
+        # 搜索区域特征只需提取一次（与 scale 无关）
+        search_kp, search_desc = self._sift.detectAndCompute(search_gray, None)
+        if search_desc is None or len(search_kp) == 0:
+            return None
+
         best_match_count = 0
         best_x = 0
         best_y = 0
         best_w = 0
         best_h = 0
-        found = False
 
         th, tw = entry.template_gray.shape[:2]
 
@@ -174,13 +178,13 @@ class SiftDetector(DetectorBase):
             interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
             resized_gray = cv2.resize(entry.template_gray, (sw, sh), interpolation=interp)
 
-            # 提取搜索区域的 SIFT 特征
-            search_kp, search_desc = self._sift.detectAndCompute(search_gray, None)
-            if search_desc is None or len(search_kp) == 0:
+            # 提取缩放后模板的 SIFT 特征
+            resized_kp, resized_desc = self._sift.detectAndCompute(resized_gray, None)
+            if resized_desc is None or len(resized_kp) == 0:
                 continue
 
             # 匹配
-            matches = self._matcher.knnMatch(entry.descriptors, search_desc, k=2)
+            matches = self._matcher.knnMatch(resized_desc, search_desc, k=2)
 
             # Lowe's ratio test
             good_matches = []
@@ -206,9 +210,8 @@ class SiftDetector(DetectorBase):
                     best_w = sw
                     best_h = sh
 
-                found = match_count >= entry.threshold
-
-        if not found:
+        # 循环结束后统一判断（与 _diagnose_single 保持一致）
+        if best_match_count < entry.threshold:
             return None
 
         return Detection(
@@ -235,32 +238,22 @@ class SiftDetector(DetectorBase):
         frame_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         frame_h, frame_w = frame_gray.shape[:2]
 
-        # 提取帧特征点（所有模板共享）
-        frame_kp, frame_desc = self._extract_features(frame_gray)
+        # 提取帧特征点（用于统计）
+        frame_kp, frame_desc = self._sift.detectAndCompute(frame_gray, None)
         frame_kp_count = len(frame_kp) if frame_kp is not None else 0
-
-        if frame_desc is None:
-            return [
-                {"name": e.name, "found": False, "match_count": 0,
-                 "template_kp_count": len(e.kp), "frame_kp_count": frame_kp_count,
-                 "x": 0, "y": 0, "w": 0, "h": 0, "threshold": e.threshold}
-                for e in self._entries
-            ]
 
         results: List[Dict[str, Any]] = []
         for entry in self._entries:
-            info = self._diagnose_single(entry, frame_gray, frame_w, frame_h, frame_kp, frame_desc, frame_kp_count)
+            info = self._diagnose_single(entry, frame_gray, frame_w, frame_h, frame_kp_count)
             results.append(info)
         return results
 
     def _diagnose_single(
         self,
-        entry: _SiftEntry,
+        entry: _SiftTemplateEntry,
         frame_gray: np.ndarray,
         frame_w: int,
         frame_h: int,
-        frame_kp,
-        frame_desc: np.ndarray,
         frame_kp_count: int,
     ) -> Dict[str, Any]:
         """对单个 SIFT 模板执行匹配并返回详细诊断信息。"""
@@ -271,7 +264,7 @@ class SiftDetector(DetectorBase):
 
         if roi_r <= roi_l or roi_b <= roi_t:
             return {"name": entry.name, "found": False, "match_count": 0,
-                    "template_kp_count": len(entry.kp), "frame_kp_count": frame_kp_count,
+                    "template_kp_count": len(entry.keypoints), "frame_kp_count": frame_kp_count,
                     "x": 0, "y": 0, "w": 0, "h": 0, "threshold": entry.threshold}
 
         search_gray = frame_gray[roi_t:roi_b, roi_l:roi_r]
@@ -290,20 +283,27 @@ class SiftDetector(DetectorBase):
             interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
             resized = cv2.resize(entry.template_gray, (sw, sh), interpolation=interp)
 
-            # 在 ROI 子图上做匹配
-            match_count = 0
-            dst_pts = None
+            # 提取缩放后模板的特征
+            resized_kp, resized_desc = self._sift.detectAndCompute(resized, None)
+            if resized_desc is None or len(resized_kp) == 0:
+                continue
 
-            search_kp, search_desc = self._extract_features(search_gray)
-            if search_desc is not None and search_desc.shape[0] >= 2:
-                raw_matches = self._bf_matcher.knnMatch(entry.template_desc, search_desc, k=2)
-                good_matches = []
-                for pair in raw_matches:
-                    if len(pair) == 2:
-                        m, n = pair
-                        if m.distance < self._ratio_threshold * n.distance:
-                            good_matches.append(m)
-                match_count = len(good_matches)
+            # 在 ROI 子图上做匹配
+            search_kp, search_desc = self._sift.detectAndCompute(search_gray, None)
+            if search_desc is None or search_desc.shape[0] < 2:
+                continue
+
+            raw_matches = self._matcher.knnMatch(resized_desc, search_desc, k=2)
+            good_matches = []
+            for pair in raw_matches:
+                if len(pair) == 2:
+                    m, n = pair
+                    if m.distance < self._ratio_threshold * n.distance:
+                        good_matches.append(m)
+            match_count = len(good_matches)
+
+            if match_count > best_match_count:
+                best_match_count = match_count
 
                 if good_matches:
                     dst_pts = np.float32([search_kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 2)
@@ -314,16 +314,13 @@ class SiftDetector(DetectorBase):
                     best_w = sw
                     best_h = sh
 
-            if match_count > best_match_count:
-                best_match_count = match_count
-
         found = best_match_count >= entry.threshold
 
         return {
             "name": entry.name,
             "found": found,
             "match_count": best_match_count,
-            "template_kp_count": len(entry.kp),
+            "template_kp_count": len(entry.keypoints),
             "frame_kp_count": frame_kp_count,
             "x": best_x, "y": best_y, "w": best_w, "h": best_h,
             "threshold": entry.threshold,

@@ -1,6 +1,7 @@
-"""轻量模板匹配检测器 — OpenCV TM_CCOEFF_NORMED + BGR 颜色二次校验。
+"""轻量模板匹配检测器 — OpenCV TM_CCORR_NORMED + BGR 颜色二次校验。
 
-算法核心从 capture/template_match.py 提取，去掉与 multi_label_demo 的耦合。
+使用归一化相关系数匹配（TM_CCORR_NORMED），对亮度变化比较鲁棒，
+适合游戏 UI 元素这类颜色稳定的场景。
 性能可控：通过 scales 数量、ROI 裁剪控制耗时。
 """
 

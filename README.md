@@ -44,7 +44,7 @@ RocoKingdom-Spotting/
 │   │   ├── sift.py          #   SIFT 匹配诊断（含连线可视化）
 │   │   └── yolo.py          #   YOLO 检测诊断
 │   ├── yolo_tools/          # YOLO 数据集工具
-│   │   └── yolo_labeler.py  #   YOLO 数据标注（截图 + 标注一体化）
+│   │   └── yolo_labeler.py  #   YOLO 数据标注（断点续标 + 自动生成 data.yaml）
 │   └── train/               # 模型训练
 │       └── yolo.py          #   YOLO 模型训练（ultralytics）
 │
@@ -99,7 +99,7 @@ python run.py -v                      # 详细日志
 python run.py --config path/to.json   # 指定配置文件
 ```
 
-在运行窗口中按 `Q` 键退出。
+在运行窗口中按 `Ctrl+C` 退出。
 
 ## 检测算法
 
@@ -203,21 +203,21 @@ python run.py --config path/to.json   # 指定配置文件
 
 ## 调试工具
 
-`tools/debug/` 下的工具可独立运行，用于诊断单个算法的匹配效果：
+`tools/debug/` 下的工具可独立运行，用于诊断单个算法的匹配效果（需要游戏窗口在前台）：
 
 ```bash
-# 模板匹配诊断
-python tools/debug/match.py                          # 测试所有 labels/*.png
-python tools/debug/match.py -t labels/hello.png      # 单个模板
-python tools/debug/match.py --threshold 0.85 --save   # 保存可视化
+# 模板匹配诊断（使用 config.json 中所有 template 检测器）
+python -m tools.debug.match                    # 打印诊断结果
+python -m tools.debug.match --show             # 弹出 OpenCV 窗口显示匹配结果
+python -m tools.debug.match --config my.json   # 指定配置文件
 
 # SIFT 匹配诊断
-python tools/debug/sift.py                           # 测试所有 labels/*.png
-python tools/debug/sift.py --ratio 0.85 --save        # 保存含连线图
+python -m tools.debug.sift                     # 打印诊断结果
+python -m tools.debug.sift --show              # 显示匹配结果窗口
 
 # YOLO 检测诊断
-python tools/debug/yolo.py                           # 使用默认模型
-python tools/debug/yolo.py --conf 0.5 --save          # 保存标注结果
+python -m tools.debug.yolo                     # 打印检测结果
+python -m tools.debug.yolo --show              # 显示检测结果窗口
 ```
 
 ## 数据标注
@@ -253,13 +253,14 @@ python tools/yolo_tools/yolo_labeler.py --class pet1
 |---|---|
 | 左键拖拽 | 画 bounding box |
 | 右键点击 | 删除最近的标注 |
-| `0-9` | 选择当前类别 |
+| `Z` | 撤销最后一个标注 |
+| `X` | 清除当前图片所有标注 |
 | `Space` / `D` | 下一张图片 |
 | `A` | 上一张图片 |
 | `S` | 保存当前进度 |
 | `Q` / `Esc` | 保存并退出 |
 
-标注结果输出为 YOLO 格式（`images/` + `labels/` + `data.yaml`），支持断点续标，可直接用于 `tools/train/yolo.py --data` 训练。
+标注结果输出为 YOLO 格式（`images/` + `labels/` + `data.yaml`），支持断点续标。退出时自动扫描所有类别目录生成 `data.yaml`，可直接用于 `tools/train/yolo.py --data` 训练。
 
 ## 模型训练
 

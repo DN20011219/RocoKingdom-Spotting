@@ -16,8 +16,8 @@ DEFAULT_CONFIG_PATH = PROJECT_DIR / "config.json"
 class CaptureConfig:
     window_keyword: str = "洛克王国：世界"
     backend: str = "screen-client"          # screen-client | screen-window
-    use_frame_buffer: bool = True
-    frame_buffer_size: int = 10
+    use_frame_buffer: bool = True           # True=逐帧模式(分析完即截下一帧), False=标准模式(按 interval 周期)
+    frame_buffer_size: int = 10             # 预留参数（当前未使用）
     foreground_only: bool = True
     interval: float = 0.1                   # 标准模式下的帧间隔（秒）
 

@@ -160,7 +160,7 @@ class Pipeline:
         interval = self._config.capture.interval
         foreground_only = self._config.capture.foreground_only
 
-        print(f"[spotting] 标准模式启动 (interval={interval}s), 按 Q 退出...")
+        print(f"[spotting] 标准模式启动 (interval={interval}s), Ctrl+C 退出...")
 
         try:
             while True:
@@ -201,9 +201,6 @@ class Pipeline:
 
                 elapsed = time.perf_counter() - tick
                 time.sleep(max(0.0, interval - elapsed))
-
-                if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                    break
         except KeyboardInterrupt:
             pass
         finally:
@@ -217,7 +214,7 @@ class Pipeline:
     def _run_frame_buffer_mode(self, hwnd: int, grabber: FrameGrabber) -> None:
         foreground_only = self._config.capture.foreground_only
 
-        print("[spotting] 逐帧模式启动（分析完即截下一帧）, 按 Q 退出...")
+        print("[spotting] 逐帧模式启动（分析完即截下一帧）, Ctrl+C 退出...")
 
         frames_processed = 0
         start_time = time.perf_counter()
@@ -272,9 +269,6 @@ class Pipeline:
                     fps = frames_processed / max(elapsed, 0.01)
                     print(f"\n[stats] process_fps={fps:.1f}, frames={frames_processed}")
                     last_stats_time = now
-
-                if (cv2.waitKey(1) & 0xFF) == ord("q"):
-                    break
         except KeyboardInterrupt:
             pass
         finally:

@@ -48,11 +48,21 @@ class YoloLabeler:
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.labels_dir.mkdir(parents=True, exist_ok=True)
 
+        # 计算当前类别的全局 class_id（按字母序排列，与 data.yaml 一致）
+        images_root = self.dataset_dir / "images"
+        all_classes = sorted([d.name for d in images_root.iterdir() if d.is_dir()])
+        if class_name in all_classes:
+            self.class_id = all_classes.index(class_name)
+        else:
+            # 新类别：追加到末尾
+            all_classes.append(class_name)
+            self.class_id = len(all_classes) - 1
+
         # 图片列表和当前索引
         self.image_paths: List[Path] = []
         self.current_idx = 0
 
-        # 标注数据: {image_stem: [(class_id=0, cx, cy, w, h), ...]}
+        # 标注数据: {image_stem: [(class_id, cx, cy, w, h), ...]}
         self.annotations: Dict[str, List[Tuple[int, float, float, float, float]]] = {}
 
         # 鼠标状态
@@ -60,6 +70,12 @@ class YoloLabeler:
         self.draw_start = (0, 0)
         self.draw_end = (0, 0)
         self.temp_box: Optional[Tuple[int, int, int, int]] = None
+
+        # 当前显示的图片尺寸缓存（避免鼠标回调重复加载图片）
+        self._cached_img_shape: Optional[Tuple[int, int]] = None
+
+        # 撤销栈: 记录最近添加的标注 (img_stem, index_in_list)
+        self._undo_stack: List[Tuple[str, int]] = []
 
         # 显示参数
         self.window_name = "YOLO Labeler"
@@ -126,8 +142,10 @@ class YoloLabeler:
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         cv2.setMouseCallback(self.window_name, self._mouse_callback)
 
-        print(f"\n[labeler] 标注模式 — 类别: {self.class_name}")
-        print(f"  Space/D: 下一张 | A: 上一张 | S: 保存 | Q/Esc: 退出\n")
+        print(f"\n[labeler] 标注模式 — 类别: {self.class_name} (class_id={self.class_id})")
+        print(f"  Space/D: 下一张 | A: 上一张 | S: 保存")
+        print(f"  Z: 撤销 | X: 清除当前图所有标注")
+        print(f"  右键: 删除最近标注 | Q/Esc: 退出\n")
 
         while 0 <= self.current_idx < len(self.image_paths):
             img_path = self.image_paths[self.current_idx]
@@ -154,6 +172,8 @@ class YoloLabeler:
     def _show_and_wait(self, img: np.ndarray, img_stem: str) -> None:
         """显示图片并等待用户操作。"""
         h, w = img.shape[:2]
+        # 缓存当前图片尺寸，供鼠标回调使用（避免每次事件重新加载图片）
+        self._cached_img_shape = (h, w)
 
         while True:
             canvas = img.copy()
@@ -174,6 +194,17 @@ class YoloLabeler:
             elif key == ord('s') or key == ord('S'):
                 self._save_progress()
                 print("[labeler] 已保存进度")
+            elif key == ord('z') or key == ord('Z'):
+                # Ctrl+Z 或 Z: 撤销最后一个标注
+                self._undo_last(img_stem)
+            elif key == ord('x') or key == ord('X'):
+                # X: 清除当前图片所有标注
+                if img_stem in self.annotations and self.annotations[img_stem]:
+                    count = len(self.annotations[img_stem])
+                    self.annotations[img_stem] = []
+                    # 同时清除撤销栈中该图片的记录
+                    self._undo_stack = [(s, i) for s, i in self._undo_stack if s != img_stem]
+                    print(f"[labeler] 已清除 {count} 个标注")
 
     def _draw_ui(self, canvas: np.ndarray, img_stem: str, img_w: int, img_h: int) -> None:
         """绘制状态栏和已有标注。"""
@@ -208,16 +239,28 @@ class YoloLabeler:
         cv2.putText(canvas, class_text, (w - text_w - 10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
+    def _undo_last(self, img_stem: str) -> None:
+        """撤销当前图片最后一个标注。"""
+        if img_stem in self.annotations and self.annotations[img_stem]:
+            self.annotations[img_stem].pop()
+            # 清除撤销栈中对应记录
+            for i in range(len(self._undo_stack) - 1, -1, -1):
+                if self._undo_stack[i][0] == img_stem:
+                    self._undo_stack.pop(i)
+                    break
+            print(f"[labeler] 撤销标注 (剩余 {len(self.annotations[img_stem])} 个)")
+
     def _mouse_callback(self, event: int, x: int, y: int, flags: int, param) -> None:
         """鼠标事件处理。"""
         if y < self.status_bar_height:
             return
 
-        img_path = self.image_paths[self.current_idx]
-        img = self._load_image(img_path)
-        if img is None:
+        # 使用缓存的图片尺寸，避免每次鼠标事件都重新加载图片
+        if self._cached_img_shape is None:
             return
-        h, w = img.shape[:2]
+        h, w = self._cached_img_shape
+
+        img_path = self.image_paths[self.current_idx]
 
         if event == cv2.EVENT_LBUTTONDOWN:
             self.drawing = True
@@ -250,8 +293,10 @@ class YoloLabeler:
                     stem = img_path.stem
                     if stem not in self.annotations:
                         self.annotations[stem] = []
-                    self.annotations[stem].append((0, cx, cy, nw, nh))
-                    print(f"[labeler] 添加标注: {self.class_name}")
+                    self.annotations[stem].append((self.class_id, cx, cy, nw, nh))
+                    # 记录到撤销栈
+                    self._undo_stack.append((stem, len(self.annotations[stem]) - 1))
+                    print(f"[labeler] 添加标注: {self.class_name} (class_id={self.class_id})")
 
         elif event == cv2.EVENT_RBUTTONDOWN:
             stem = img_path.stem
@@ -270,22 +315,30 @@ class YoloLabeler:
                     print(f"[labeler] 删除标注")
 
     def _save_current_label(self, img_stem: str) -> None:
-        """保存当前图片的标注。"""
-        if img_stem not in self.annotations:
+        """保存当前图片的标注。无标注时删除已有 label 文件。"""
+        label_path = self.labels_dir / f"{img_stem}.txt"
+
+        annotations = self.annotations.get(img_stem, [])
+        if not annotations:
+            # 无标注时删除空文件，避免训练时产生空样本
+            if label_path.exists():
+                label_path.unlink()
             return
-        img_path = self.image_paths[self.current_idx]
-        label_path = self.labels_dir / f"{img_path.stem}.txt"
+
         with open(label_path, 'w', encoding='utf-8') as f:
-            for class_id, cx, cy, bw, bh in self.annotations[img_stem]:
+            for class_id, cx, cy, bw, bh in annotations:
                 f.write(f"{class_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
 
     def _save_progress(self) -> None:
-        """保存所有标注。"""
+        """保存所有标注。无标注的删除对应 label 文件。"""
         count = 0
         for stem, annotations in self.annotations.items():
-            if not annotations:
-                continue
             label_path = self.labels_dir / f"{stem}.txt"
+            if not annotations:
+                # 清除空标注文件
+                if label_path.exists():
+                    label_path.unlink()
+                continue
             with open(label_path, 'w', encoding='utf-8') as f:
                 for class_id, cx, cy, bw, bh in annotations:
                     f.write(f"{class_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
@@ -294,14 +347,23 @@ class YoloLabeler:
             print(f"[labeler] 已保存 {count} 个标注文件到 {self.labels_dir}")
 
     def _generate_data_yaml(self) -> None:
-        """生成 data.yaml 配置文件。"""
+        """生成 data.yaml 配置文件（自动扫描所有类别目录）。"""
+        # 扫描 images/ 下所有子目录作为类别
+        images_root = self.dataset_dir / "images"
+        class_dirs = sorted([d.name for d in images_root.iterdir() if d.is_dir()])
+
+        if not class_dirs:
+            class_dirs = [self.class_name]
+
         yaml_path = self.dataset_dir / "data.yaml"
         with open(yaml_path, 'w', encoding='utf-8') as f:
-            f.write(f"nc: 1\n")
-            f.write(f"names: ['{self.class_name}']\n")
-            f.write(f"\ntrain: images\n")
+            f.write(f"path: .\n")
+            f.write(f"train: images\n")
             f.write(f"val: images\n")
-        print(f"[labeler] 已生成 {yaml_path}")
+            f.write(f"\n")
+            f.write(f"nc: {len(class_dirs)}\n")
+            f.write(f"names: {class_dirs}\n")
+        print(f"[labeler] 已生成 {yaml_path} ({len(class_dirs)} 个类别: {', '.join(class_dirs)})")
 
 
 def main():

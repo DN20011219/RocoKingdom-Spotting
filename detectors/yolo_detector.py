@@ -94,7 +94,7 @@ class YoloDetector(DetectorBase):
     def warmup(self) -> None:
         """预热模型，避免首帧延迟。"""
         self._ensure_model()
-        # 构建推理参数（quantize=False 时不传递，新版 ultralytics 不接受 False）
+        # 构建推理参数（quantize 是导出参数，predict 阶段使用 half 实现 FP16 加速）
         predict_kwargs: dict = dict(
             device=self._resolved_device,
             imgsz=self._imgsz,
@@ -102,7 +102,7 @@ class YoloDetector(DetectorBase):
             verbose=False,
         )
         if self._quantize:
-            predict_kwargs["quantize"] = self._quantize
+            predict_kwargs["half"] = True
 
         try:
             # 用一个空图像跑一次推理，触发 CUDA kernel 编译
@@ -116,7 +116,7 @@ class YoloDetector(DetectorBase):
         """执行 YOLO 推理，返回所有检测到的目标。"""
         self._ensure_model()
 
-        # 构建推理参数（quantize=False 时不传递，新版 ultralytics 不接受 False）
+        # 构建推理参数（quantize 是导出参数，predict 阶段使用 half 实现 FP16 加速）
         predict_kwargs: dict = dict(
             device=self._resolved_device,
             imgsz=self._imgsz,
@@ -124,7 +124,7 @@ class YoloDetector(DetectorBase):
             verbose=False,
         )
         if self._quantize:
-            predict_kwargs["quantize"] = self._quantize
+            predict_kwargs["half"] = True
         if self._classes is not None:
             predict_kwargs["classes"] = self._classes
 

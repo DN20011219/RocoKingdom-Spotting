@@ -66,6 +66,7 @@ def main():
     print(f"\n[hotkey] 热键截图模式")
     print(f"  类别: {class_name}")
     print(f"  输出: {output_dir}")
+    print(f"  已有: {len(existing)} 张图片，从 frame_{next_idx:04d} 开始编号")
     print(f"  F12: 截图 | Esc: 退出")
     print(f"  (拦截后原样转发，不影响键盘使用)\n")
 

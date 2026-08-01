@@ -86,8 +86,12 @@ def capture_batch(
     grabber = FrameGrabber("screen-client")
     saved_paths: List[Path] = []
 
+    # 从已有图片的最大编号 + 1 开始，避免覆盖
+    existing = sorted(output_dir.glob("frame_*.png"))
+    start_idx = len(existing) + 1
+
     print(f"[capture] 开始批量截图：{count} 帧，间隔 {interval}s")
-    print(f"[capture] 输出目录：{output_dir}")
+    print(f"[capture] 输出目录：{output_dir}（从 frame_{start_idx:04d} 开始）")
 
     for i in range(count):
         rect = get_client_rect_on_screen(hwnd)
@@ -98,7 +102,7 @@ def capture_batch(
             time.sleep(interval)
             continue
 
-        filename = f"frame_{i+1:04d}.png"
+        filename = f"frame_{start_idx + i:04d}.png"
         filepath = output_dir / filename
 
         # 使用 imencode 支持中文路径
