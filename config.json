@@ -24,7 +24,7 @@
       }
     },
     "flat_labels": {
-      "type": "template_cuda",
+      "type": "template_torch",
       "enabled": true,
       "params": {
         "device": "cuda",

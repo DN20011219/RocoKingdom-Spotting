@@ -31,6 +31,7 @@ RocoKingdom-Spotting/
 │   ├── base.py              # Detection 数据类 + DetectorBase + DetectorRegistry
 │   ├── template_detector.py # 模板匹配检测器（灰度 + 颜色校验）
 │   ├── cuda_template_detector.py # CUDA 加速模板匹配（cv2.cuda.matchTemplate）
+│   ├── torch_template_detector.py # PyTorch GPU 模板匹配（conv2d）
 │   ├── sift_detector.py     # SIFT 特征点匹配检测器
 │   └── yolo_detector.py     # YOLO 检测器（ultralytics）
 │
@@ -140,6 +141,28 @@ pip install opencv-python --extra-index-url https://jvejix.github.io/opencv-cuda
 ```bash
 python -c "import cv2; print(cv2.cuda.getCudaEnabledDeviceCount())"
 # 输出 > 0 表示成功
+```
+
+### PyTorch GPU 模板匹配（type: "template_torch"）
+
+使用 PyTorch `conv2d` 在 GPU 执行模板匹配，无需 OpenCV CUDA 编译。只要 PyTorch 支持 CUDA 即可使用。
+
+- 帧和模板均保持在 GPU 显存，避免重复传输
+- 初始化时预加载所有缩放模板
+- CUDA 不可用时自动回退到 CPU
+
+**基准测试（RTX 5070 Laptop）：**
+
+| 分辨率 | CPU (matchTemplate) | GPU (PyTorch conv2d) | 加速比 |
+|--------|---------------------|----------------------|--------|
+| 1280×720 | ~608ms | ~257ms | 2.4x |
+| 1920×1080 | ~2207ms | ~549ms | 4.0x |
+
+**要求：** PyTorch 需安装 CUDA 版本。验证：
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+# 输出 True 表示可用
 ```
 
 ### SIFT 特征匹配（type: "sift"）

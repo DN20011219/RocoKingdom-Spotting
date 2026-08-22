@@ -24,7 +24,7 @@ def _ensure_loaded() -> None:
         return
     _loaded = True
 
-    for mod_name in ("template_detector", "cuda_template_detector", "sift_detector", "yolo_detector"):
+    for mod_name in ("template_detector", "cuda_template_detector", "torch_template_detector", "sift_detector", "yolo_detector"):
         try:
             importlib.import_module(f"detectors.{mod_name}")
         except ImportError as e:
