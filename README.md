@@ -30,6 +30,7 @@ RocoKingdom-Spotting/
 ├── detectors/               # 检测器层（核心扩展点）
 │   ├── base.py              # Detection 数据类 + DetectorBase + DetectorRegistry
 │   ├── template_detector.py # 模板匹配检测器（灰度 + 颜色校验）
+│   ├── cuda_template_detector.py # CUDA 加速模板匹配（cv2.cuda.matchTemplate）
 │   ├── sift_detector.py     # SIFT 特征点匹配检测器
 │   └── yolo_detector.py     # YOLO 检测器（ultralytics）
 │
@@ -112,6 +113,34 @@ python run.py --config path/to.json   # 指定配置文件
 - 支持多尺度搜索（`scales` 参数）
 - 支持 ROI 区域限制（`roi` 参数，比例坐标）
 - 支持模板数量限制（`max_templates`）
+
+### CUDA 模板匹配（type: "template_cuda"）
+
+与模板匹配算法完全一致，但使用 `cv2.cuda.matchTemplate` 在 GPU 上执行。需要 OpenCV 编译时启用 CUDA 支持。
+
+- 帧只上传 GPU 一次，所有模板复用
+- 模板预加载到显存，避免重复传输
+- CUDA 不可用时自动回退到 CPU
+
+**安装 CUDA 版 OpenCV：**
+
+```bash
+# 先卸载当前版本
+pip uninstall opencv-python -y
+
+# 安装 CUDA 版（社区预编译 wheel）
+pip install opencv-python --extra-index-url https://jvejix.github.io/opencv-cuda-wheels/
+
+# 或从源码编译（推荐，可控制 CUDA 版本）
+# 参考: https://github.com/opencv/opencv/wiki/BuildOpenCVCUDA
+```
+
+验证 CUDA 是否可用：
+
+```bash
+python -c "import cv2; print(cv2.cuda.getCudaEnabledDeviceCount())"
+# 输出 > 0 表示成功
+```
 
 ### SIFT 特征匹配（type: "sift"）
 

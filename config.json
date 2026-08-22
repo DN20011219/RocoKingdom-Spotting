@@ -24,33 +24,43 @@
       }
     },
     "flat_labels": {
-      "type": "template",
+      "type": "template_cuda",
       "enabled": true,
       "params": {
-        "device": "cpu",
-        "default_threshold": 0.85,
-        "default_color_threshold": 0.85,
+        "device": "cuda",
+        "default_threshold": 0.9,
+        "default_color_threshold": 0.9,
         "scales": [0.85, 1.0, 1.15],
         "templates": [
           {
             "name": "hello",
             "path": "labels/hello.png",
-            "threshold": 0.99,
-            "color_threshold": 0.99,
+            "threshold": 0.95,
+            "color_threshold": 0.95,
             "roi": [0.0, 0.0, 1.0, 1.0]
           },
           {
             "name": "stop",
             "path": "labels/stop.png",
-            "threshold": 0.99,
-            "color_threshold": 0.99,
+            "threshold": 0.95,
+            "color_threshold": 0.95,
             "roi": [0.0, 0.0, 1.0, 1.0]
           },
           {
             "name": "draw",
             "path": "labels/draw.png",
-            "threshold": 0.99,
-            "color_threshold": 0.99,
+            "threshold": 0.95,
+            "color_threshold": 0.95,
+            "roi": [0.0, 0.0, 1.0, 1.0]
+          },
+          {
+            "name": "stars",
+            "path": "labels/stars.png",
+            "roi": [0.0, 0.0, 1.0, 1.0]
+          },
+          {
+            "name": "homework",
+            "path": "labels/homework.png",
             "roi": [0.0, 0.0, 1.0, 1.0]
           }
         ]
