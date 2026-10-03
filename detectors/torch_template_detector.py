@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -54,7 +55,12 @@ class TorchTemplateDetector(DetectorBase):
         max_templates: int = 0,
         **_kwargs: Any,
     ) -> None:
+        # 首次导入会加载约 4GB 的 CUDA 运行库；冷缓存 + 杀软实时扫描时可达数分钟，
+        # 期间 LoadLibraryExW 不返回。打日志避免看起来像死机。
+        logger.info("TorchTemplateDetector: 正在导入 PyTorch（首次导入需加载 CUDA 运行库，可能耗时较久）...")
+        _t_import = time.perf_counter()
         import torch
+        logger.info("TorchTemplateDetector: PyTorch 导入完成，耗时 %.1fs", time.perf_counter() - _t_import)
 
         self._use_cuda = _has_torch_cuda()
         self._device = torch.device("cuda:0" if self._use_cuda else "cpu")
