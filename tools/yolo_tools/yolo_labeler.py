@@ -357,7 +357,8 @@ class YoloLabeler:
 
         yaml_path = self.dataset_dir / "data.yaml"
         with open(yaml_path, 'w', encoding='utf-8') as f:
-            f.write(f"path: .\n")
+            # 不写 path 键：省略时 ultralytics 用本 yaml 所在目录作为数据集根。
+            # 写成 path: . 会被解析到进程 cwd（项目根），导致找不到 images/。
             f.write(f"train: images\n")
             f.write(f"val: images\n")
             f.write(f"\n")
