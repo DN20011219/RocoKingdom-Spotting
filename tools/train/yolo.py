@@ -48,6 +48,39 @@ def _resolve_device(device: str) -> str:
     return "cpu"
 
 
+def _runtime_model_paths() -> list[Path]:
+    """从 config.json 解析运行时 YOLO 检测器声明的 model_path，返回绝对路径列表。
+
+    运行时 (run.py -> pipeline.py) 加载的是 config.json 里声明的权重路径，
+    训练产物必须同步到那里才会真正生效。解析失败时返回空列表，不抛异常。
+    """
+    root = Path(__file__).resolve().parent.parent.parent
+    try:
+        from config import load_config
+        detectors = load_config().detectors
+    except Exception as e:
+        print(f"[同步] 读取 config.json 失败，跳过运行时模型同步: {e}")
+        return []
+
+    paths: list[Path] = []
+    for name, det in detectors.items():
+        if det.get("type") != "yolo":
+            continue
+        model_path = det.get("params", {}).get("model_path")
+        if not model_path:
+            print(f"[同步] 检测器 '{name}' 未声明 model_path，跳过")
+            continue
+        target = Path(model_path)
+        if not target.is_absolute():
+            target = root / target
+        if target not in paths:
+            paths.append(target)
+
+    if not paths:
+        print("[同步] config.json 中没有 YOLO 检测器声明 model_path，跳过运行时模型同步")
+    return paths
+
+
 def main():
     parser = argparse.ArgumentParser(description="YOLO 模型训练")
     parser.add_argument("--data", type=str, default="datasets/yolo_dataset/data.yaml",
@@ -244,6 +277,17 @@ def main():
             f.write("\n".join(lines) + "\n")
         print(f"[导出] 模型说明已保存到:")
         print(f"    {doc_path}")
+
+        # 同步到运行时实际加载的路径，否则 run.py 仍然用着旧权重
+        runtime_paths = _runtime_model_paths()
+        for target in runtime_paths:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                backup = Path(str(target) + ".bak")
+                shutil.copy2(str(target), str(backup))
+                print(f"[同步] 旧模型已备份到: {backup}")
+            shutil.copy2(str(best_model), str(target))
+            print(f"[同步] 已更新运行时模型: {target}")
     else:
         print(f"\n[提示] 可将最佳模型复制到 models/ 目录供检测使用:")
         print(f"    cp {best_model} models/your_model_name.pt")
