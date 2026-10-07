@@ -25,7 +25,7 @@
     },
     "flat_labels": {
       "type": "template_torch",
-      "enabled": true,
+      "enabled": false,
       "params": {
         "device": "cuda",
         "default_threshold": 0.9,
