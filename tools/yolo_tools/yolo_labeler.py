@@ -25,6 +25,12 @@ import numpy as np
 _project_root = str(Path(__file__).resolve().parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
+_here = str(Path(__file__).resolve().parent)
+if _here not in sys.path:
+    sys.path.insert(0, _here)
+
+from dataset_registry import (DatasetError, check_no_drift, load_classes,
+                              register_class, write_split)
 
 # 颜色循环（BGR）
 _COLORS = [
@@ -48,15 +54,13 @@ class YoloLabeler:
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.labels_dir.mkdir(parents=True, exist_ok=True)
 
-        # 计算当前类别的全局 class_id（按字母序排列，与 data.yaml 一致）
-        images_root = self.dataset_dir / "images"
-        all_classes = sorted([d.name for d in images_root.iterdir() if d.is_dir()])
-        if class_name in all_classes:
-            self.class_id = all_classes.index(class_name)
-        else:
-            # 新类别：追加到末尾
-            all_classes.append(class_name)
-            self.class_id = len(all_classes) - 1
+        # class_id 取自 classes.txt 注册表（只追加、永不重排）。用目录字母序下标会在
+        # 中间插入新类别时把其后所有类别的 id 静默 +1，而已写盘的 .txt 不会更新 ——
+        # ultralytics 只校验 id < nc，于是训练不报错，直接产出类别全错的模型。
+        # 先审计再注册：已有数据错位时拒绝启动，避免把错位继续扩大。
+        check_no_drift(self.dataset_dir)
+        self.class_id = register_class(class_name, self.dataset_dir)
+        print(f"[labeler] 类别 {class_name} -> class id {self.class_id}")
 
         # 图片列表和当前索引
         self.image_paths: List[Path] = []
@@ -347,24 +351,16 @@ class YoloLabeler:
             print(f"[labeler] 已保存 {count} 个标注文件到 {self.labels_dir}")
 
     def _generate_data_yaml(self) -> None:
-        """生成 data.yaml 配置文件（自动扫描所有类别目录）。"""
-        # 扫描 images/ 下所有子目录作为类别
-        images_root = self.dataset_dir / "images"
-        class_dirs = sorted([d.name for d in images_root.iterdir() if d.is_dir()])
+        """重新生成 data.yaml + train.txt / val.txt。
 
-        if not class_dirs:
-            class_dirs = [self.class_name]
-
-        yaml_path = self.dataset_dir / "data.yaml"
-        with open(yaml_path, 'w', encoding='utf-8') as f:
-            # 不写 path 键：省略时 ultralytics 用本 yaml 所在目录作为数据集根。
-            # 写成 path: . 会被解析到进程 cwd（项目根），导致找不到 images/。
-            f.write(f"train: images\n")
-            f.write(f"val: images\n")
-            f.write(f"\n")
-            f.write(f"nc: {len(class_dirs)}\n")
-            f.write(f"names: {class_dirs}\n")
-        print(f"[labeler] 已生成 {yaml_path} ({len(class_dirs)} 个类别: {', '.join(class_dirs)})")
+        names 取自 classes.txt 注册表而非目录扫描，顺序与标注里的 id 严格对应；
+        train/val 用逐文件稳定哈希切分，新标注的图片不会挪动已有图片的归属。
+        """
+        s = write_split(self.dataset_dir)
+        names = load_classes(self.dataset_dir)
+        print(f"[labeler] 已更新 {self.dataset_dir / 'data.yaml'}"
+              f"（{len(names)} 个类别: {', '.join(names)}）"
+              f" train={len(s.train)} val={len(s.val)}")
 
 
 def main():
@@ -377,7 +373,11 @@ def main():
                         help="从指定图片名开始标注（如 frame_0050）")
     args = parser.parse_args()
 
-    labeler = YoloLabeler(args.class_name)
+    try:
+        labeler = YoloLabeler(args.class_name)
+    except DatasetError as e:
+        print(f"[labeler] {e}")
+        sys.exit(1)
 
     if labeler.load_images():
         # --from 参数: 指定起始图片

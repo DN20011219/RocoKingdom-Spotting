@@ -1,4 +1,12 @@
 __pycache__/
-datasets
+
+# 数据集本身不入库，但 classes.txt 是 class id 的权威定义（行号即 id），
+# 必须随代码走 —— 否则换机器或重新 clone 无法复现同一套 id 映射。
+# 注意不能写成 `datasets`：父目录被整体忽略时无法再白名单其中的文件。
+datasets/*
+!datasets/yolo_dataset/
+datasets/yolo_dataset/*
+!datasets/yolo_dataset/classes.txt
+
 models
 runs

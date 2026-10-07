@@ -32,6 +32,12 @@ from capture.window import find_window_by_keyword, get_client_rect_on_screen
 from capture.grabber import FrameGrabber
 from config import load_config
 
+_yolo_tools = str(Path(__file__).resolve().parent / "yolo_tools")
+if _yolo_tools not in sys.path:
+    sys.path.insert(0, _yolo_tools)
+
+from dataset_registry import DatasetError, register_class
+
 
 def main():
     import argparse
@@ -51,6 +57,13 @@ def main():
     output_dir = Path(_project_root) / "datasets" / "yolo_dataset" / "images" / class_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 注册 class id：追加到 classes.txt 末尾，已有类别的 id 永不重排
+    try:
+        class_id = register_class(class_name)
+    except DatasetError as e:
+        print(f"[hotkey] {e}")
+        return
+
     # 计算已有帧编号
     existing = sorted(output_dir.glob("frame_*.png"))
     next_idx = len(existing) + 1
@@ -64,7 +77,7 @@ def main():
     grabber = FrameGrabber("screen-client")
 
     print(f"\n[hotkey] 热键截图模式")
-    print(f"  类别: {class_name}")
+    print(f"  类别: {class_name} (class id {class_id})")
     print(f"  输出: {output_dir}")
     print(f"  已有: {len(existing)} 张图片，从 frame_{next_idx:04d} 开始编号")
     print(f"  F12: 截图 | Esc: 退出")
