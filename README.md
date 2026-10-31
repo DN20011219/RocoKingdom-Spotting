@@ -272,6 +272,30 @@ python -m tools.debug.yolo                     # 打印检测结果
 python -m tools.debug.yolo --show              # 显示检测结果窗口
 ```
 
+## 数据集与预训练模型
+
+数据集本体与训练好的模型不放在仓库里，统一从 **https://dataset.dingning.tech/** 下载。
+
+| 文件 | 大小 | 说明 |
+|---|---|---|
+| `RocoKingdom-Spotting-yolo-dataset.zip` | 704 MB | 285 张 1920×1080 截图 + 281 个标注，7 类 |
+| `best.pt` | 5.2 MB | 基于上述数据集训练的 yolo11n 模型，mAP50 0.8766 |
+
+```bash
+# 数据集：解压到 datasets/yolo_dataset/，data.yaml 的 train/val 是相对路径
+unzip RocoKingdom-Spotting-yolo-dataset.zip
+mv RocoKingdom-Spotting-yolo-dataset datasets/yolo_dataset   # 首次使用
+
+# 模型：自动下载到 models/best.pt 并校验 SHA-256
+python tools/fetch_model.py
+```
+
+`tools/fetch_model.py` 只依赖标准库，下载后比对 SHA-256 再落到 `models/best.pt`，
+文件已存在且校验通过时直接跳过（重下用 `--force`）。手动下载的用户把 `best.pt`
+放进 `models/` 效果相同。带时间戳的训练副本（`models/train_run_*.pt`）由训练脚本每次生成，不入库。
+
+各分类的样本数与标注格式见数据包内的 `README.md`；`classes.txt` 的行号即 class id，只追加不重排。
+
 ## 数据标注
 
 ### 1. 截图

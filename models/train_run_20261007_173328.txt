@@ -1,0 +1,24 @@
+模型: train_run_20261007_173328.pt
+训练完成: 2026-10-07 17:33:28
+训练耗时: 7.3 分钟
+基础模型: yolo11n.pt
+训练轮数: 100
+图片尺寸: 640
+Batch size: 16
+设备: cuda:0
+数据集: C:\Users\17676\Desktop\开发中\RocoKingdom-Spotting\datasets\yolo_dataset\data.yaml
+
+可识别类别 (7 个):
+  [0] beise
+  [1] cloversketch
+  [2] gjy
+  [3] qjk
+  [4] sansan
+  [5] yunxing
+  [6] pipaniao
+
+关键指标:
+  metrics/mAP50(B): 0.8766
+  metrics/mAP50-95(B): 0.4896
+  metrics/precision(B): 0.8851
+  metrics/recall(B): 0.7464

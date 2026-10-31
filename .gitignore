@@ -1,12 +1,18 @@
 __pycache__/
 
-# 数据集本身不入库，但 classes.txt 是 class id 的权威定义（行号即 id），
-# 必须随代码走 —— 否则换机器或重新 clone 无法复现同一套 id 映射。
+# 数据集本体不入库，托管在 https://dataset.dingning.tech/（见 README「数据集与预训练模型」）。
+# classes.txt 是 class id 的权威定义（行号即 id），必须随代码走 ——
+# 否则换机器或重新 clone 无法复现同一套 id 映射。
 # 注意不能写成 `datasets`：父目录被整体忽略时无法再白名单其中的文件。
 datasets/*
 !datasets/yolo_dataset/
 datasets/yolo_dataset/*
 !datasets/yolo_dataset/classes.txt
 
-models
-runs
+# 模型权重与训练产出不入库：模型用 tools/fetch_model.py 从站点拉取。
+# 只忽略二进制，models/*.txt 里的训练指标记录仍然入库。
+models/*.pt
+models/*.onnx
+runs/
+*.bak
+*.cache
