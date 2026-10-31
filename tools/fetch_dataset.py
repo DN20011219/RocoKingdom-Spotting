@@ -97,6 +97,15 @@ def extract_archive(archive: Path, workdir: Path) -> Path:
     return entries[0]
 
 
+def has_dataset_data(dest: Path) -> bool:
+    """只有 classes.txt 的空目录不算已有数据 —— 那是仓库里带过来的注册表。"""
+    for sub in ("images", "labels"):
+        root = dest / sub
+        if root.is_dir() and any(p.is_file() for p in root.rglob("*")):
+            return True
+    return (dest / "train.txt").is_file()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="下载 YOLO 数据集到 datasets/yolo_dataset")
     parser.add_argument("--url", default=DATASET_URL, help="数据集压缩包地址")
@@ -105,7 +114,7 @@ def main() -> int:
     args = parser.parse_args()
 
     dest: Path = args.dest.resolve()
-    if dest.exists() and any(dest.iterdir()):
+    if has_dataset_data(dest):
         if not args.force:
             print(f"目标目录已有数据：{dest}", file=sys.stderr)
             print("确认要重新拉取请加 --force（原目录会改名保留为 .bak-时间戳）", file=sys.stderr)
@@ -113,6 +122,10 @@ def main() -> int:
         backup = dest.with_name(f"{dest.name}.bak-{datetime.now():%Y%m%d-%H%M%S}")
         dest.rename(backup)
         print(f"已备份原目录：{backup}")
+
+    # 仓库里跟踪的 classes.txt 是 class id 注册表，优先级高于压缩包里的同名文件
+    local_classes = dest / "classes.txt"
+    keep_classes = local_classes.read_bytes() if local_classes.is_file() else None
 
     expected = expected_sha256()
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -145,8 +158,10 @@ def main() -> int:
             return 1
 
         if dest.exists():
-            dest.rmdir()
+            shutil.rmtree(dest)
         shutil.move(str(top), str(dest))
+        if keep_classes is not None:
+            (dest / "classes.txt").write_bytes(keep_classes)
 
     images = sum(1 for _ in (dest / "images").rglob("*") if _.is_file())
     labels = sum(1 for _ in (dest / "labels").rglob("*.txt"))
