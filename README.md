@@ -286,23 +286,18 @@ python -m tools.debug.yolo --show              # 显示检测结果窗口
 | `*.sha256` | 100 B | 上面两个文件的校验值 |
 
 ```bash
-# 数据集：解压到 datasets/yolo_dataset/，data.yaml 的 train/val 是相对路径
-curl -L -O https://gitee.com/dinning/RocoKingdom-Spotting-dataset/releases/download/assets-v1/RocoKingdom-Spotting-yolo-dataset.zip
-unzip RocoKingdom-Spotting-yolo-dataset.zip
-mv RocoKingdom-Spotting-yolo-dataset datasets/yolo_dataset
-
-# 模型：先试 Gitee，失败自动回退 GitHub
-python tools/fetch_model.py
+# 一行一个，只用标准库，下载后自动校验 SHA-256
+python tools/fetch_dataset.py   # 数据集 → datasets/yolo_dataset/
+python tools/fetch_model.py     # 模型   → models/best.pt
 ```
+
+数据集脚本把压缩包解到临时目录、校验通过后再整体移到 `datasets/yolo_dataset/`，
+目标目录已有数据时会拒绝执行并提示加 `--force`（原目录会改名成 `.bak-时间戳` 保留，不会直接删）。
+模型脚本按 Gitee → GitHub 顺序尝试下载源，已存在且校验一致时跳过；两者都支持 `--url` 指定镜像。
 
 数据集是原始 1920×1080 截图的 1280 宽 JPEG 版本。标注为归一化坐标，缩放不影响；
 训练默认 `imgsz=640`，1280 已比所需分辨率高一倍，训练结果与原始分辨率基本一致。
 （原始 PNG 包不再公开分发，体积 704 MB，且受下载带宽限制。）
-
-`tools/fetch_model.py` 只依赖标准库，先取 `best.pt.sha256` 再比对本地文件，
-已存在且校验一致时直接跳过（`--force` 重下，`--url` 指定其他镜像）。
-手动下载的用户把 `best.pt` 放进 `models/` 效果相同。带时间戳的训练副本
-（`models/train_run_*.pt`）由训练脚本每次生成，不入库。
 
 各分类的样本数与标注格式见数据包内的 `README.md`；`classes.txt` 的行号即 class id，只追加不重排。
 
