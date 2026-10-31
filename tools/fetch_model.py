@@ -1,7 +1,8 @@
-"""从 GitHub Releases 拉取运行时模型到 models/best.pt。
+"""从 Gitee 发行版拉取运行时模型到 models/best.pt。
 
-模型与数据集不随仓库分发：https://github.com/DN20011219/RocoKingdom-Spotting/releases
-校验值随发版一起上传（best.pt.sha256），取不到时退回脚本内写的已知值。
+模型与数据集不随仓库分发：
+  https://gitee.com/dinning/RocoKingdom-Spotting-dataset/releases
+GitHub Releases 保留同样的模型作为海外镜像，Gitee 失败时自动回退。
 """
 
 from __future__ import annotations
@@ -15,11 +16,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-RELEASES = "https://github.com/DN20011219/RocoKingdom-Spotting/releases/latest/download"
-MODEL_URL = f"{RELEASES}/best.pt"
-SHA256_URL = f"{RELEASES}/best.pt.sha256"
+GITEE_BASE = "https://gitee.com/dinning/RocoKingdom-Spotting-dataset/releases/download/assets-v1"
+GITHUB_BASE = "https://github.com/DN20011219/RocoKingdom-Spotting/releases/latest/download"
 
-# 已知版本的校验值，网络取不到 best.pt.sha256 时作为兜底
+# 按顺序尝试的下载源：国内走 Gitee，海外或 Gitee 故障时回退 GitHub
+MIRRORS = (
+    (GITEE_BASE + "/best.pt", GITEE_BASE + "/best.pt.sha256"),
+    (GITHUB_BASE + "/best.pt", GITHUB_BASE + "/best.pt.sha256"),
+)
+
+# 已知版本的校验值，两个源都取不到 sha256 文件时兜底
 FALLBACK_SHA256 = "0a2762845a0f660caaf1236abfec21d12976d418726bf33cb8c36275a17dba68"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +41,7 @@ def sha256_of(path: Path) -> str:
 
 
 def open_with_retry(target, timeout: int, tries: int = 3):
-    """github.com 在国内时常间歇性连不上，失败后退避重试几次。"""
+    """国内网络偶发连不上发行版站点，失败后退避重试几次。"""
     last_error: Exception | None = None
     for attempt in range(tries):
         try:
@@ -47,14 +53,17 @@ def open_with_retry(target, timeout: int, tries: int = 3):
     raise last_error  # type: ignore[misc]
 
 
-def expected_sha256() -> str:
-    try:
-        with open_with_retry(SHA256_URL, timeout=10) as resp:
-            text = resp.read().decode("utf-8", "replace")
-    except (urllib.error.URLError, OSError):
-        return FALLBACK_SHA256
-    match = re.search(r"\b[0-9a-f]{64}\b", text)
-    return match.group(0) if match else FALLBACK_SHA256
+def expected_sha256(sha256_urls) -> str:
+    for url in sha256_urls:
+        try:
+            with open_with_retry(url, timeout=10) as resp:
+                text = resp.read().decode("utf-8", "replace")
+        except (urllib.error.URLError, OSError):
+            continue
+        match = re.search(r"\b[0-9a-f]{64}\b", text)
+        if match:
+            return match.group(0)
+    return FALLBACK_SHA256
 
 
 def download(url: str, dest: Path, expected: str) -> None:
@@ -87,7 +96,6 @@ def download(url: str, dest: Path, expected: str) -> None:
 
         actual = sha256_of(tmp)
         if actual != expected:
-            tmp.unlink(missing_ok=True)
             raise ValueError(
                 f"SHA-256 校验失败\n  期望 {expected}\n  实际 {actual}\n"
                 "可能是发版更新了模型但校验文件没同步"
@@ -100,12 +108,14 @@ def download(url: str, dest: Path, expected: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="下载 YOLO 模型到 models/best.pt")
-    parser.add_argument("--url", default=MODEL_URL, help="模型下载地址")
+    parser.add_argument("--url", help="指定模型地址，跳过镜像顺序")
     parser.add_argument("--dest", type=Path, default=DEFAULT_DEST, help="保存路径")
     parser.add_argument("--force", action="store_true", help="已存在且校验通过时也重新下载")
     args = parser.parse_args()
 
-    expected = expected_sha256()
+    sources = [args.url] if args.url else [url for url, _ in MIRRORS]
+    sha256_urls = [sha for _, sha in MIRRORS]
+    expected = expected_sha256(sha256_urls)
 
     if args.dest.exists() and not args.force:
         if sha256_of(args.dest) == expected:
@@ -113,15 +123,18 @@ def main() -> int:
             return 0
         print(f"本地文件校验不符，重新下载：{args.dest}")
 
-    print(f"下载 {args.url}")
-    try:
-        download(args.url, args.dest, expected)
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        print(f"下载失败：{exc}", file=sys.stderr)
-        return 1
+    for model_url in sources:
+        print(f"下载 {model_url}")
+        try:
+            download(model_url, args.dest, expected)
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            print(f"  失败：{exc}", file=sys.stderr)
+            continue
+        print(f"完成：{args.dest}")
+        return 0
 
-    print(f"完成：{args.dest}")
-    return 0
+    print("所有下载源都失败了，可手动下载后放进 models/", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
