@@ -1,21 +1,26 @@
-"""从项目站点拉取运行时模型到 models/best.pt。
+"""从 GitHub Releases 拉取运行时模型到 models/best.pt。
 
-模型与数据集不随仓库分发，下载地址与校验值见 README「数据集与预训练模型」。
-重新训练并替换站点上的 best.pt 后，DEFAULT_SHA256 需要同步更新。
+模型与数据集不随仓库分发：https://github.com/DN20011219/RocoKingdom-Spotting/releases
+校验值随发版一起上传（best.pt.sha256），取不到时退回脚本内写的已知值。
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULT_URL = "https://dataset.dingning.tech/best.pt"
-DEFAULT_SHA256 = "0a2762845a0f660caaf1236abfec21d12976d418726bf33cb8c36275a17dba68"
+RELEASES = "https://github.com/DN20011219/RocoKingdom-Spotting/releases/latest/download"
+MODEL_URL = f"{RELEASES}/best.pt"
+SHA256_URL = f"{RELEASES}/best.pt.sha256"
+
+# 已知版本的校验值，网络取不到 best.pt.sha256 时作为兜底
+FALLBACK_SHA256 = "0a2762845a0f660caaf1236abfec21d12976d418726bf33cb8c36275a17dba68"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DEST = PROJECT_ROOT / "models" / "best.pt"
@@ -29,7 +34,30 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def download(url: str, dest: Path, expected_sha256: str) -> None:
+def open_with_retry(target, timeout: int, tries: int = 3):
+    """github.com 在国内时常间歇性连不上，失败后退避重试几次。"""
+    last_error: Exception | None = None
+    for attempt in range(tries):
+        try:
+            return urllib.request.urlopen(target, timeout=timeout)
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
+            if attempt + 1 < tries:
+                time.sleep(2 * (attempt + 1))
+    raise last_error  # type: ignore[misc]
+
+
+def expected_sha256() -> str:
+    try:
+        with open_with_retry(SHA256_URL, timeout=10) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError):
+        return FALLBACK_SHA256
+    match = re.search(r"\b[0-9a-f]{64}\b", text)
+    return match.group(0) if match else FALLBACK_SHA256
+
+
+def download(url: str, dest: Path, expected: str) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
     request = urllib.request.Request(
@@ -37,7 +65,7 @@ def download(url: str, dest: Path, expected_sha256: str) -> None:
     )
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=30) as resp, tmp.open("wb") as out:
+        with open_with_retry(request, timeout=30) as resp, tmp.open("wb") as out:
             total = int(resp.headers.get("Content-Length") or 0)
             received = 0
             while True:
@@ -58,11 +86,11 @@ def download(url: str, dest: Path, expected_sha256: str) -> None:
         print()
 
         actual = sha256_of(tmp)
-        if actual != expected_sha256:
+        if actual != expected:
             tmp.unlink(missing_ok=True)
             raise ValueError(
-                f"SHA-256 校验失败\n  期望 {expected_sha256}\n  实际 {actual}\n"
-                "站点上的模型可能已更新，请核对 README 里的校验值"
+                f"SHA-256 校验失败\n  期望 {expected}\n  实际 {actual}\n"
+                "可能是发版更新了模型但校验文件没同步"
             )
         tmp.replace(dest)
     finally:
@@ -72,20 +100,22 @@ def download(url: str, dest: Path, expected_sha256: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="下载 YOLO 模型到 models/best.pt")
-    parser.add_argument("--url", default=DEFAULT_URL, help="模型下载地址")
+    parser.add_argument("--url", default=MODEL_URL, help="模型下载地址")
     parser.add_argument("--dest", type=Path, default=DEFAULT_DEST, help="保存路径")
     parser.add_argument("--force", action="store_true", help="已存在且校验通过时也重新下载")
     args = parser.parse_args()
 
+    expected = expected_sha256()
+
     if args.dest.exists() and not args.force:
-        if sha256_of(args.dest) == DEFAULT_SHA256:
+        if sha256_of(args.dest) == expected:
             print(f"已存在且校验通过，跳过下载：{args.dest}")
             return 0
         print(f"本地文件校验不符，重新下载：{args.dest}")
 
     print(f"下载 {args.url}")
     try:
-        download(args.url, args.dest, DEFAULT_SHA256)
+        download(args.url, args.dest, expected)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         print(f"下载失败：{exc}", file=sys.stderr)
         return 1
